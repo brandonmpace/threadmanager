@@ -18,12 +18,19 @@
 # License along with threadmanager.
 # If not, see <https://www.gnu.org/licenses/>.
 
-import datetime
+import concurrent.futures
 import queue
 import threading
+import time
+
+from .constants import *
+from .exceptions import *
 
 
-# TODO: Maybe subclass ThreadPoolExecutor and Future from concurrent.futures to add time tracking
+# TODO: Maybe subclass ThreadPoolExecutor and Future from concurrent.futures to add some basic time tracking
+class TimedFuturePool(concurrent.futures.ThreadPoolExecutor):
+    def submit(self, fn, *args, **kwargs):
+        return super().submit(self, fn, *args, **kwargs)
 
 
 class ThreadManager(object):
@@ -31,15 +38,18 @@ class ThreadManager(object):
     def __init__(self):
         self._rlock = threading.RLock()
         self._queue = queue.Queue()
-        self._threadlauncher = None
+        self._thread_launcher = None  # TODO: This will be an on-demand thread that spawns other threads for submitted items.
+        self._thread_monitor = None
 
-    def add(self, func, args=(), kwargs=None):
+    def add(self, func, args=(), kwargs=None, get_ref=False):
         """Add a new thread for a callable"""
-        pass
+        pass  # TODO: Accept a pool identifier, check that self._thread_launcher is running, then add to its queue
+        # TODO: when get_ref is True, return a reference to the Thread or Future
 
     def add_pool(self):
         """Add a new organizational pool for separating threads"""
-        pass
+        pass  # TODO: Determine if we should return a pool ID or allow users to specify the same string for .add()
+        # TODO: Allow specifying a time as a float, that if threads run longer than it then it will be logged
 
 
 class ThreadLauncher(threading.Thread):
@@ -59,31 +69,85 @@ class ThreadLauncher(threading.Thread):
 
 
 class TimedThread(threading.Thread):
-    """A thread that tracks start and completion times using the datetime module"""
+    """
+    A thread that tracks start and completion times for statistics.
+    There are some API similarities to Future objects to simplify other parts of this package.
+    """
     def __init__(self, group=None, target=None, name=None, args=(), kwargs=None, safe=True):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
-        self.args = args
-        self.kwargs = kwargs
-        self.exception = None
-        self.safe = safe
-        self.time_started: datetime.datetime = None
-        self.time_completed: datetime.datetime = None
+        self._rlock = threading.RLock()
+        self._condition = threading.Condition(self._rlock)
+        self._args = args
+        self._kwargs = kwargs
+        self._exception = None
+        self._result = None
+        self._safe = safe
+        self._state = INITIALIZED
+        self._target = target
+        self._time_started: float = 0.0
+        self._time_completed: float = 0.0
+
+    def done(self):
+        with self._condition:
+            return self._state == COMPLETED
+
+    def exception(self, timeout: float = None):
+        with self._condition:
+            if self.done():
+                return self._exception
+            else:
+                self._condition.wait(timeout)
+
+                if self.done():
+                    return self._exception
+                else:
+                    raise WaitTimeout
+
+    def result(self, timeout: float = None):
+        with self._condition:
+            if self.done():
+                if self._exception:
+                    raise self._exception
+                return self._result
+            else:
+                self._condition.wait(timeout)
+
+                if self.done():
+                    if self._exception:
+                        raise self._exception
+                    return self._result
+                else:
+                    raise WaitTimeout
 
     def run(self):
-        self.time_started = datetime.datetime.now()
+        with self._condition:
+            self._time_started = time.time()
         try:
-            super().run()
-        except Exception as E:
-            if self.safe:
-                self.exception = E
+            result = self._target(*self._args, **self._kwargs)
+        except BaseException as E:
+            if self._safe:
+                with self._condition:
+                    self._exception = E
             else:
                 raise
+        else:
+            with self._condition:
+                self._result = result
         finally:
-            self.time_completed = datetime.datetime.now()
+            with self._condition:
+                self._time_completed = time.time()
+                # Release all threads that are waiting on exception or result, etc.
+                self._condition.notify_all()
 
-    @property
-    def time_total(self) -> datetime.timedelta:
-        if self.is_alive() or (self.time_started is None) or (self.time_completed is None):
-            raise RuntimeError('This must only be used after .start() is called and the thread has completed')
-        return self.time_completed - self.time_started
+    def total_time(self, timeout: float = None) -> float:
+        with self._condition:
+            if self.done():
+                return self._time_completed - self._time_started
+            else:
+                self._condition.wait(timeout)
+
+                if self.done():
+                    return self._time_completed - self._time_started
+                else:
+                    raise WaitTimeout
