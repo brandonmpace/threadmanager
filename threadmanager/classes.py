@@ -37,7 +37,8 @@ class ThreadManager(object):
     """A class for managing, organizing and tracking threads"""
     def __init__(self):
         self._rlock = threading.RLock()
-        self._queue = queue.Queue()
+        # Queue for sending items to the ThreadLauncher instance
+        self._submission_queue = queue.Queue()
         self._thread_launcher = None  # TODO: This will be an on-demand thread that spawns other threads for submitted items.
         self._thread_monitor = None
 
@@ -51,21 +52,44 @@ class ThreadManager(object):
         pass  # TODO: Determine if we should return a pool ID or allow users to specify the same string for .add()
         # TODO: Allow specifying a time as a float, that if threads run longer than it then it will be logged
 
+    def _thread_monitor_is_running(self) -> bool:
+        with self._rlock:
+            return self._thread_monitor and self._thread_monitor.is_alive()
+
 
 class ThreadLauncher(threading.Thread):
     """A thread that launches and manages other threads"""
-    def __init__(self, in_queue: queue.Queue, group=None, target=None, name=None, args=(), kwargs=None, safe=True):
+    def __init__(self, master: ThreadManager, input_queue: queue.Queue, out_queue: queue.Queue, group=None, target=None, name=None, args=(), kwargs=None, safe=True):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
-        self._queue = in_queue
-        self.safe = safe
+        self._input_queue = input_queue
+        self._output_queue = out_queue
+        self_master = master
+        self._safe = safe
 
     def run(self):
         while True:
             try:
-                self._queue.get(True, 30)  # TODO: consider adding a function to set the timeout in ThreadManager
+                thread_request = self._input_queue.get(True, 30)  # TODO: consider adding a function to set the timeout in ThreadManager
+                # TODO: Launch the thread with returned info
+                # TODO: If the thread_info indicates a return is needed, put the thread/future reference into the output queue
+                # Indicate we've completed the request, so .join() can be used on the queue
+                self._input_queue.task_done()
             except queue.Empty:
                 break
+
+
+class ThreadPool(object):
+    """Internal class that is an abstraction layer for ThreadPoolExecutor and other internal pools"""
+    # TODO: This will keep the name/identifier, etc.
+    pass
+
+
+class ThreadRequest(object):
+    """Internal class that is used for queueing requests"""
+    # TODO: accept a ThreadPool, and whether or not a reference to the thread needs to be set
+    # TODO: If a ref is needed, consumer will wait() on a Condition created during init
+    pass
 
 
 class TimedThread(threading.Thread):
