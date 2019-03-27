@@ -23,6 +23,8 @@ import queue
 import threading
 import time
 
+from typing import Any, Iterable, Mapping
+
 from .constants import *
 from .exceptions import *
 
@@ -35,22 +37,39 @@ class TimedFuturePool(concurrent.futures.ThreadPoolExecutor):
 
 class ThreadManager(object):
     """A class for managing, organizing and tracking threads"""
-    def __init__(self):
+    def __init__(self, safe=True):
         self._rlock = threading.RLock()
+        self._running = False
+        self._stop_requested = False
         # Queue for sending items to the ThreadLauncher instance
         self._submission_queue = queue.Queue()
-        self._thread_launcher = None  # TODO: This will be an on-demand thread that spawns other threads for submitted items.
+        # TODO: This will be an on-demand thread that spawns other threads for submitted items. Make a method in this class to start it and assign None here..
+        self._thread_launcher = ThreadLauncher(self, self._submission_queue)
         self._thread_monitor = None
 
     def add(self, func, args=(), kwargs=None, get_ref=False):
         """Add a new thread for a callable"""
-        pass  # TODO: Accept a pool identifier, check that self._thread_launcher is running, then add to its queue
-        # TODO: when get_ref is True, return a reference to the Thread or Future
+        with self._rlock:
+            if self._stop_requested:
+                return
+            self._running = True
+            # TODO: Accept a pool identifier, check that self._thread_launcher is running, then add to its queue
+            thread_request = ThreadRequest(None, func, args, kwargs, get_ref)
+            self._submission_queue.put(thread_request)
+        if get_ref:
+            return thread_request.get_thread()
 
     def add_pool(self):
         """Add a new organizational pool for separating threads"""
         pass  # TODO: Determine if we should return a pool ID or allow users to specify the same string for .add()
         # TODO: Allow specifying a time as a float, that if threads run longer than it then it will be logged
+
+    def stop(self):
+        """Prevent new threads from being started"""
+        # TODO: After becoming idle, be sure to set _stop_requested back to False
+        with self._rlock:
+            self._running = False
+            self._stop_requested = True
 
     def _thread_monitor_is_running(self) -> bool:
         with self._rlock:
@@ -59,20 +78,22 @@ class ThreadManager(object):
 
 class ThreadLauncher(threading.Thread):
     """A thread that launches and manages other threads"""
-    def __init__(self, master: ThreadManager, input_queue: queue.Queue, out_queue: queue.Queue, group=None, target=None, name=None, args=(), kwargs=None, safe=True):
+    def __init__(self, master: ThreadManager, input_queue: queue.Queue, group=None, target=None, name=None, args: Iterable = (), kwargs: Mapping[str, Any] = None, safe=True):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
         self._input_queue = input_queue
-        self._output_queue = out_queue
-        self_master = master
+        self._master = master
         self._safe = safe
+        self.start()
 
     def run(self):
         while True:
             try:
                 thread_request = self._input_queue.get(True, 30)  # TODO: consider adding a function to set the timeout in ThreadManager
+                print(thread_request)
                 # TODO: Launch the thread with returned info
-                # TODO: If the thread_info indicates a return is needed, put the thread/future reference into the output queue
+                if thread_request.get_ref:
+                    thread_request.set_thread('test')
                 # Indicate we've completed the request, so .join() can be used on the queue
                 self._input_queue.task_done()
             except queue.Empty:
@@ -86,10 +107,35 @@ class ThreadPool(object):
 
 
 class ThreadRequest(object):
-    """Internal class that is used for queueing requests"""
-    # TODO: accept a ThreadPool, and whether or not a reference to the thread needs to be set
-    # TODO: If a ref is needed, consumer will wait() on a Condition created during init
-    pass
+    """Internal class that is used for queueing requests and returning thread objects when requested"""
+    def __init__(self, pool: ThreadPool, func, args: Iterable, kwargs: Mapping[str, Any], get_ref: bool):
+        self._rlock = threading.RLock()
+        self._condition = threading.Condition(self._rlock)
+        self.pool = pool
+        self.func = func
+        self.args = args
+        self.kwargs = kwargs
+        self.get_ref = get_ref
+        self._thread = None
+
+    def get_thread(self, timeout: float = None):
+        with self._condition:
+            if self._thread:
+                return self._thread
+            else:
+                self._condition.wait(timeout)
+
+                if self._thread:
+                    return self._thread
+                else:
+                    raise WaitTimeout
+
+    def set_thread(self, thread_item):
+        """For internal use by ThreadLauncher"""
+        with self._condition:
+            self._thread = thread_item
+            # Inform any waiting threads that the item is ready
+            self._condition.notify_all()
 
 
 class TimedThread(threading.Thread):
@@ -146,6 +192,7 @@ class TimedThread(threading.Thread):
 
     def run(self):
         with self._condition:
+            self._state = RUNNING
             self._time_started = time.time()
         try:
             result = self._target(*self._args, **self._kwargs)
@@ -161,6 +208,7 @@ class TimedThread(threading.Thread):
         finally:
             with self._condition:
                 self._time_completed = time.time()
+                self._state = COMPLETED
                 # Release all threads that are waiting on exception or result, etc.
                 self._condition.notify_all()
 
