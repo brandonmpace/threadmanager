@@ -39,23 +39,27 @@ class ThreadManager(object):
     """A class for managing, organizing and tracking threads"""
     def __init__(self, safe=True):
         self._rlock = threading.RLock()
+        self._launcher_lock = threading.Lock()
         self._running = False
         self._stop_requested = False
         # Queue for sending items to the ThreadLauncher instance
         self._submission_queue = queue.Queue()
-        # TODO: This will be an on-demand thread that spawns other threads for submitted items. Make a method in this class to start it and assign None here..
-        self._thread_launcher = ThreadLauncher(self, self._submission_queue)
+        self._thread_launcher = None
         self._thread_monitor = None
+        self._run_thread_launcher()
 
-    def add(self, func, args=(), kwargs=None, get_ref=False):
+    def add(self, pool_name: str, func, args=(), kwargs=None, get_ref=False):
         """Add a new thread for a callable"""
         with self._rlock:
             if self._stop_requested:
                 return
-            self._running = True
-            # TODO: Accept a pool identifier, check that self._thread_launcher is running, then add to its queue
-            thread_request = ThreadRequest(None, func, args, kwargs, get_ref)
-            self._submission_queue.put(thread_request)
+            # Keep the ThreadLauncher from exiting while we create and send the request, in case it times out now
+            with self._launcher_lock:
+                self._running = True
+                # TODO: Get the pool via identifier, check that self._thread_launcher is running, then add to its queue
+                thread_request = ThreadRequest(None, func, args, kwargs, get_ref)
+                self._submission_queue.put(thread_request)
+            self._run_thread_launcher()
         if get_ref:
             return thread_request.get_thread()
 
@@ -64,12 +68,33 @@ class ThreadManager(object):
         pass  # TODO: Determine if we should return a pool ID or allow users to specify the same string for .add()
         # TODO: Allow specifying a time as a float, that if threads run longer than it then it will be logged
 
+    def go(self) -> bool:
+        """Can be used in functions running in threads to determine if they should keep going"""
+        with self._rlock:
+            return not self._stop_requested
+
+    def no_go(self) -> bool:
+        """Can be used in functions running in threads to determine if they should stop"""
+        with self._rlock:
+            return self._stop_requested
+
     def stop(self):
         """Prevent new threads from being started"""
         # TODO: After becoming idle, be sure to set _stop_requested back to False
         with self._rlock:
             self._running = False
             self._stop_requested = True
+
+    def _run_thread_launcher(self):
+        with self._rlock:
+            if self._thread_launcher_is_running():
+                return
+            else:
+                self._thread_launcher = ThreadLauncher(self, self._submission_queue, self._launcher_lock)
+
+    def _thread_launcher_is_running(self) -> bool:
+        with self._rlock:
+            return self._thread_launcher and self._thread_launcher.is_alive()
 
     def _thread_monitor_is_running(self) -> bool:
         with self._rlock:
@@ -78,11 +103,12 @@ class ThreadManager(object):
 
 class ThreadLauncher(threading.Thread):
     """A thread that launches and manages other threads"""
-    def __init__(self, master: ThreadManager, input_queue: queue.Queue, group=None, target=None, name=None, args: Iterable = (), kwargs: Mapping[str, Any] = None, safe=True):
+    def __init__(self, master: ThreadManager, input_queue: queue.Queue, pending_lock: threading.Lock, group=None, target=None, name=None, args: Iterable = (), kwargs: Mapping[str, Any] = None, safe=True):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
         self._input_queue = input_queue
         self._master = master
+        self._pending_lock = pending_lock
         self._safe = safe
         self.start()
 
@@ -97,12 +123,20 @@ class ThreadLauncher(threading.Thread):
                 # Indicate we've completed the request, so .join() can be used on the queue
                 self._input_queue.task_done()
             except queue.Empty:
-                break
+                # blocks if an item is being created to add to our queue
+                with self._pending_lock:
+                    if self._input_queue.empty():
+                        break
+
+
+class ThreadMonitor(threading.Thread):
+    """A thread that monitors other threads and gathers statistics when they are enabled"""
+    pass
 
 
 class ThreadPool(object):
     """Internal class that is an abstraction layer for ThreadPoolExecutor and other internal pools"""
-    # TODO: This will keep the name/identifier, etc.
+    # TODO: This will keep the name/identifier, whether or not threads in the pool are daemonic etc.
     pass
 
 
@@ -211,6 +245,10 @@ class TimedThread(threading.Thread):
                 self._state = COMPLETED
                 # Release all threads that are waiting on exception or result, etc.
                 self._condition.notify_all()
+
+    def running(self):
+        with self._condition:
+            return self._state == RUNNING
 
     def total_time(self, timeout: float = None) -> float:
         with self._condition:
