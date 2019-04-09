@@ -19,6 +19,11 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 
+# States for TimedThread
 COMPLETED = 'COMPLETED'
 INITIALIZED = 'INITIALIZED'
 RUNNING = 'RUNNING'
+
+# Types for ThreadPoolWrapper
+FUTURE = 'FUTURE'
+THREAD = 'THREAD'

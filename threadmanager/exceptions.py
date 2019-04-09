@@ -18,9 +18,17 @@
 # License along with threadmanager.
 # If not, see <https://www.gnu.org/licenses/>.
 
+# For Warning items, see https://docs.python.org/3/library/warnings.html
+# and https://docs.python.org/3/library/logging.html#logging.captureWarnings
+
 
 class GeneralError(Exception):
     """Base Exception class for threadmanager"""
+    pass
+
+
+class StopNotificationWarning(UserWarning):
+    """A submission was made, but not accepted as the machine was stopping"""
     pass
 
 
