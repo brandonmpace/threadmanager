@@ -27,6 +27,11 @@ class GeneralError(Exception):
     pass
 
 
+class BadStateError(GeneralError):
+    """State is not as expected"""
+    pass
+
+
 class StopNotificationWarning(UserWarning):
     """A submission was made, but not accepted as the machine was stopping"""
     pass

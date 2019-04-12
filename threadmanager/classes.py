@@ -56,6 +56,22 @@ class TimedThread(threading.Thread):
         self._time_started: float = 0.0
         self._time_completed: float = 0.0
 
+    def cancel(self) -> bool:
+        """
+        Attempt to cancel the run of the thread.
+        :return: bool True if successful
+        """
+        with self._condition:
+            if self._state in NOCANCELSTATES:
+                return False
+            else:
+                self._state = CANCELLED
+                return True
+
+    def cancelled(self) -> bool:
+        with self._condition:
+            return self._state == CANCELLED
+
     def done(self):
         with self._condition:
             return self._state == COMPLETED
@@ -90,8 +106,13 @@ class TimedThread(threading.Thread):
 
     def run(self):
         with self._condition:
-            self._state = RUNNING
-            self._time_started = time.time()
+            if self._state == INITIALIZED:
+                self._state = RUNNING
+                self._time_started = time.time()
+            elif self._state == CANCELLED:
+                return
+            else:
+                raise BadStateError("Thread is not in expected state in run method")
         try:
             result = self._target(*self._args, **self._kwargs)
         except BaseException as E:
@@ -146,20 +167,28 @@ class ThreadLauncher(threading.Thread):
         while True:
             try:
                 thread_request: ThreadRequest = self._input_queue.get(True, self._timeout)
-                print(thread_request)
+
                 if thread_request is None:
-                    return  # Indicates shutdown requested
-                # TODO: Launch the thread with returned info with .submit() to the pool
-                thread_obj = thread_request.submit()
-                if thread_request.get_ref:
-                    thread_request.set_thread(thread_obj)
+                    # shutdown was requested
+                    self._input_queue.task_done()
+                    return
+
+                thread_request.submit()
+
                 # Indicate we've completed the request, so .join() can be used on the queue
                 self._input_queue.task_done()
+
             except queue.Empty:
                 # blocks if an item is being created to add to our queue
                 with self._pending_lock:
                     if self._input_queue.empty():
                         break
+
+            except BaseException as E:
+                if self._safe:
+                    print(E)  # TODO: logger.exception()
+                else:
+                    raise
 
 
 class ThreadManager(object):
@@ -178,7 +207,7 @@ class ThreadManager(object):
         self._thread_monitor: ThreadMonitor = None
         self._run_thread_launcher()
 
-    def add(self, pool_name: str, func: Callable, args=(), kwargs=None, get_ref=False):
+    def add(self, pool_name: str, func: Callable, args: Iterable = (), kwargs: Optional[Mapping[str, Any]] = None, get_ref: bool = False, timeout: float = None):
         """Add a new thread for a callable in the requested pool"""
         with self._rlock:
             if self._stop_requested:
@@ -197,7 +226,7 @@ class ThreadManager(object):
                 self._submission_queue.put(thread_request)
             self._run_thread_launcher()
         if get_ref:
-            return thread_request.get_thread()
+            return thread_request.get_thread(timeout=timeout)
 
     def add_pool(self, name: str, pool_type: str = THREAD, runtime_alert: float = 0, worker_count: Optional[int] = None):
         """Add a new organizational pool for separating threads"""
@@ -207,11 +236,18 @@ class ThreadManager(object):
             new_pool = ThreadPoolWrapper(name, pool_type, runtime_alert, worker_count)
             self._pools[name] = new_pool
 
+    @property
     def go(self) -> bool:
         """Can be used in functions running in threads to determine if they should keep going"""
         with self._rlock:
             return not self._stop_requested
 
+    @property
+    def idle(self):
+        """Can be used to identify when there are/aren't submitted threads still running"""
+        return self._running is False
+
+    @property
     def no_go(self) -> bool:
         """Can be used in functions running in threads to determine if they should stop"""
         with self._rlock:
@@ -219,19 +255,31 @@ class ThreadManager(object):
 
     def shutdown(self, wait: bool = True):
         # TODO: finish this.. shutdown all pools, which should join threads, etc.
+        #  Set a flag or state that shutdown was called and block new adds..
+        #  maybe allow cancel_all param or similar to cancel pending items
         with self._rlock:
+            if self._running:
+                self.stop()
             if self._thread_launcher_is_running():
                 self._submission_queue.put(None)  # Signal to ThreadLauncher that we're shutting down.
+                if wait:
+                    self._submission_queue.join()
+            for pool_item in self._pools.values():
+                pool_item.shutdown(wait=wait)
 
-    def stop(self):
-        """Prevent new threads from being started and allow thread using go and no_go to be aware when they check"""
+    def stop(self) -> bool:
+        """
+        Prevent new threads from being started and allow thread using go and no_go to be aware when they check
+        :return: bool False if already stopped (in that case a RuntimeError is raised if safe was False at creation)
+        """
         # TODO: After becoming idle, be sure to set _stop_requested back to False
         with self._rlock:
             if self._running:
                 self._running = False
                 self._stop_requested = True
+                return True
             elif self._safe:
-                return
+                return False
             else:
                 raise RuntimeError("stop called while already stopped!")
 
@@ -240,7 +288,8 @@ class ThreadManager(object):
             if self._thread_launcher_is_running():
                 return
             else:
-                self._thread_launcher = ThreadLauncher(self, self._submission_queue, self._launcher_lock, self._thread_launcher_timeout, safe=self._safe)
+                # TODO: append number to threadlauncher name for tracking number of instances created
+                self._thread_launcher = ThreadLauncher(self, self._submission_queue, self._launcher_lock, self._thread_launcher_timeout, name="threadlauncher", safe=self._safe)
 
     def _thread_launcher_is_running(self) -> bool:
         with self._rlock:
@@ -283,11 +332,11 @@ class ThreadPoolWrapper(object):
         elif pool_type == THREAD:
             raise NotImplementedError("TODO...")  # TODO: Create and use internal pool
 
-    def shutdown(self):
-        self._pool.shutdown()
+    def shutdown(self, wait: bool = True):
+        self._pool.shutdown(wait=wait)
 
-    def submit(self, func: Callable, args: Iterable, kwargs: Mapping[str, Any]):
-        return self._pool.submit(func, args, kwargs)
+    def submit(self, func: Callable, *args, **kwargs):
+        return self._pool.submit(func, *args, **kwargs)
 
 
 class ThreadRequest(object):
@@ -298,7 +347,7 @@ class ThreadRequest(object):
         self.pool: ThreadPoolWrapper = pool
         self.func = func
         self.args = args
-        self.kwargs = kwargs
+        self.kwargs = kwargs if kwargs else {}
         self.get_ref = get_ref
         self._thread = None
 
@@ -324,4 +373,6 @@ class ThreadRequest(object):
             self._condition.notify_all()
 
     def submit(self):
-        return self.pool.submit(self.func, self.args, self.kwargs)
+        thread_obj = self.pool.submit(self.func, *self.args, **self.kwargs)
+        if self.get_ref:
+            self.set_thread(thread_obj)

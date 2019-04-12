@@ -20,9 +20,13 @@
 
 
 # States for TimedThread
+CANCELLED = 'CANCELLED'
 COMPLETED = 'COMPLETED'
 INITIALIZED = 'INITIALIZED'
 RUNNING = 'RUNNING'
+
+# States that .cancel() returns False for
+NOCANCELSTATES = (COMPLETED, RUNNING)
 
 # Types for ThreadPoolWrapper
 FUTURE = 'FUTURE'
