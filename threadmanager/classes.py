@@ -30,10 +30,58 @@ from .constants import *
 from .exceptions import *
 
 
-# TODO: Maybe subclass ThreadPoolExecutor and Future from concurrent.futures to add some basic time tracking
-class TimedFuturePool(concurrent.futures.ThreadPoolExecutor):
+class TimedFuture(concurrent.futures.Future):
+    def __init__(self):
+        super().__init__()
+        self._time_started: float = 0.0
+        self._time_completed: float = 0.0
+
+    def set_exception(self, exception):
+        self._time_completed = time.time()
+        super().set_exception(exception)
+
+    def set_result(self, result):
+        self._time_completed = time.time()
+        super().set_result(result)
+
+    def set_running_or_notify_cancel(self) -> bool:
+        with self._condition:
+            self._time_started = time.time()
+            if super().set_running_or_notify_cancel() is False:
+                # Future was cancelled
+                self._time_completed = time.time()
+                return False
+            else:
+                return True
+
+    def total_runtime(self, timeout: Optional[float] = None) -> float:
+        with self._condition:
+            if self.done():
+                return self._time_completed - self._time_started
+            else:
+                self._condition.wait(timeout)
+
+                if self.done():
+                    return self._time_completed - self._time_started
+                else:
+                    raise concurrent.futures.TimeoutError()
+
+
+class TimedFutureThreadPool(concurrent.futures.ThreadPoolExecutor):
+    # TODO: maybe store function name in the TimedFuture: fn.__name__ when it has that attr.. (even lambda does)
+    #  This would be used for logging the time when over a set threshold..
     def submit(self, fn, *args, **kwargs):
-        return super().submit(self, fn, *args, **kwargs)
+        # Over-ridden to use TimedFuture instead
+        with self._shutdown_lock:
+            if self._shutdown:
+                raise RuntimeError('cannot schedule new futures after shutdown')
+
+            f = TimedFuture()
+            w = concurrent.futures.thread._WorkItem(f, fn, args, kwargs)
+
+            self._work_queue.put(w)
+            self._adjust_thread_count()
+            return f
 
 
 class TimedThread(threading.Thread):
@@ -135,7 +183,7 @@ class TimedThread(threading.Thread):
         with self._condition:
             return self._state == RUNNING
 
-    def total_time(self, timeout: float = None) -> float:
+    def total_runtime(self, timeout: float = None) -> float:
         with self._condition:
             if self.done():
                 return self._time_completed - self._time_started
@@ -348,7 +396,7 @@ class ThreadPoolWrapper(object):
         self._type = pool_type
 
         if pool_type == FUTURE:
-            self._pool = concurrent.futures.ThreadPoolExecutor(max_workers=worker_count, thread_name_prefix=name)
+            self._pool = TimedFutureThreadPool(max_workers=worker_count, thread_name_prefix=name)
         elif pool_type == THREAD:
             raise NotImplementedError("TODO...")  # TODO: Create and use internal pool
 

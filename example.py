@@ -97,7 +97,7 @@ if __name__ == "__main__":
     log_time("calling .stop()")
     tm.stop()
 
-    log_time(f"continuous_func result is: {second_item.result()}")
+    log_time(f"continuous_func result is: {second_item.result()} and it ran for {second_item.total_runtime()} seconds")
 
     tm.shutdown()
 
