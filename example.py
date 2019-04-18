@@ -68,7 +68,7 @@ def long_running_func(name: str, line_count: int, chunk_size: int = 2):
     for x in range(line_count):
         if number_of_lines_processed % chunk_size == 0:
             if tm.no_go:
-                log_time(f"returning early from {name} as no_go is True")
+                log_time(f"returning early from long_running_func '{name}' as no_go is True")
                 return
             # else:
             #     log_time(f"not returning early from {name}")

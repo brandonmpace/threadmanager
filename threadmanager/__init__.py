@@ -18,4 +18,5 @@
 # License along with threadmanager.
 # If not, see <https://www.gnu.org/licenses/>.
 
-from .classes import *
+from .classes import ThreadManager
+from .constants import *

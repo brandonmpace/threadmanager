@@ -311,6 +311,20 @@ class ThreadMonitor(threading.Thread):
     pass
 
 
+class ThreadPool(object):
+    """Internal class for grouping threads"""
+    def __init__(self):
+        # TODO: instantiate a queue, rlock, etc. Determine if there should be a single ThreadMonitor for all pools,
+        #  or if each pool should have a ThreadMonitor handling the queue and gathering statistics..
+        pass
+
+    def submit(self, func, *args, **kwargs):
+        pass
+
+    def shutdown(self):
+        pass
+
+
 class ThreadPoolWrapper(object):
     """Internal class that is an abstraction layer for ThreadPoolExecutor and internal pool types"""
     _supported_types = (FUTURE, THREAD)
