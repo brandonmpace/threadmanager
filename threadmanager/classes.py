@@ -166,7 +166,7 @@ class ThreadLauncher(threading.Thread):
     def run(self):
         while True:
             try:
-                thread_request: ThreadRequest = self._input_queue.get(True, self._timeout)
+                thread_request: Optional[ThreadRequest] = self._input_queue.get(True, self._timeout)
 
                 if thread_request is None:
                     # shutdown was requested
@@ -178,8 +178,8 @@ class ThreadLauncher(threading.Thread):
                 # Indicate we've completed the request, so .join() can be used on the queue
                 self._input_queue.task_done()
 
-            except queue.Empty:
-                # blocks if an item is being created to add to our queue
+            except queue.Empty:  # happens when the timeout is reached
+                # the below lock blocks if an item is being created to add to our queue
                 with self._pending_lock:
                     if self._input_queue.empty():
                         break
@@ -203,18 +203,23 @@ class ThreadManager(object):
         # Queue for sending items to the ThreadLauncher instance
         self._submission_queue = queue.Queue()
         self._thread_launcher: ThreadLauncher = None
+        self._thread_launcher_runs = 0
         self._thread_launcher_timeout = thread_launcher_timeout
         self._thread_monitor: ThreadMonitor = None
         self._run_thread_launcher()
 
-    def add(self, pool_name: str, func: Callable, args: Iterable = (), kwargs: Optional[Mapping[str, Any]] = None, get_ref: bool = False, timeout: float = None):
+    def add(self, pool_name: str, func: Callable, args: Iterable = (), kwargs: Optional[Mapping[str, Any]] = None, get_ref: bool = False, timeout: Optional[float] = None):
         """Add a new thread for a callable in the requested pool"""
         with self._rlock:
             if self._stop_requested:
                 if self._safe:
                     return  # TODO: normal log in this case
                 else:
+                    # TODO: Decide if I want to just raise an exception instead. Using a warning allows for simple
+                    #  handling with warning control (see warnings module docs) and allows for cleaner code in the
+                    #  calling function.
                     warnings.warn(f"Stop was requested, not running thread for function {func}", StopNotificationWarning)
+                    return
 
             if pool_name not in self._pools:
                 raise ValueError(f"Pool does not exist with pool_name: {pool_name}")
@@ -288,8 +293,9 @@ class ThreadManager(object):
             if self._thread_launcher_is_running():
                 return
             else:
-                # TODO: append number to threadlauncher name for tracking number of instances created
-                self._thread_launcher = ThreadLauncher(self, self._submission_queue, self._launcher_lock, self._thread_launcher_timeout, name="threadlauncher", safe=self._safe)
+                _name = f"threadlauncher{self._thread_launcher_runs}"
+                self._thread_launcher = ThreadLauncher(self, self._submission_queue, self._launcher_lock, self._thread_launcher_timeout, name=_name, safe=self._safe)
+                self._thread_launcher_runs += 1
 
     def _thread_launcher_is_running(self) -> bool:
         with self._rlock:
@@ -366,7 +372,7 @@ class ThreadRequest(object):
                     raise WaitTimeout
 
     def set_thread(self, thread_item):
-        """For internal use by ThreadLauncher"""
+        """For internal use by submit method"""
         with self._condition:
             self._thread = thread_item
             # Inform any waiting threads that the item is ready
