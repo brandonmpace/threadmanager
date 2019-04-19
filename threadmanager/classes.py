@@ -284,7 +284,7 @@ class ThreadManager(object):
                 raise ValueError(f"Pool does not exist with pool_name: {pool_name}")
 
             caller = get_caller()
-            func_name = func.__name__ if hasattr(func, '__name__') else '<unknown function>'
+            func_name = func.__qualname__ if hasattr(func, '__name__') else '<unknown function>'
             pool: ThreadPoolWrapper = self._pools[pool_name]
 
             if self._stop_requested and pool.obey_stop:
