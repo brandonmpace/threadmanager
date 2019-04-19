@@ -18,13 +18,30 @@
 # License along with threadmanager.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""
-The threadmanager package provides a way to manage and organize threads as well as keep track of state.
-It was originally created to encapsulate such functionality for use with GUIs to avoid blocking their main loop.
-"""
 
+import threading
+
+
+from .convenience import get_caller
 from .log import *
-from .classes import ThreadManager
-from .constants import *
-from .exceptions import *
-from .statistics import *
+
+
+_logger = create_logger(__name__)
+_enabled = False
+
+
+def disable_statistics():
+    global _enabled
+    _enabled = False
+    _logger.debug(f"disabled statistics. Caller: {get_caller()}")
+
+
+def enable_statistics():
+    global _enabled
+    _enabled = True
+    _logger.debug(f"enabled statistics. Caller: {get_caller()}")
+
+
+def statistics_enabled() -> bool:
+    """Check to see if statistics are enabled for threadmanager"""
+    return _enabled

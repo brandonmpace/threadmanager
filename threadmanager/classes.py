@@ -26,8 +26,13 @@ import warnings
 
 from typing import Any, Callable, Iterable, Mapping, Optional
 
+from .convenience import get_caller
 from .constants import *
 from .exceptions import *
+from .log import create_logger
+
+
+_logger = create_logger(__name__)
 
 
 class TimedFuture(concurrent.futures.Future):
@@ -37,12 +42,15 @@ class TimedFuture(concurrent.futures.Future):
         self._time_completed: float = 0.0
 
     def set_exception(self, exception):
-        self._time_completed = time.time()
-        super().set_exception(exception)
+        with self._condition:
+            _logger.exception("Future ended with an exception!")
+            self._time_completed = time.time()
+            super().set_exception(exception)
 
     def set_result(self, result):
-        self._time_completed = time.time()
-        super().set_result(result)
+        with self._condition:
+            self._time_completed = time.time()
+            super().set_result(result)
 
     def set_running_or_notify_cancel(self) -> bool:
         with self._condition:
@@ -232,9 +240,9 @@ class ThreadLauncher(threading.Thread):
                     if self._input_queue.empty():
                         break
 
-            except BaseException as E:
+            except BaseException:
                 if self._safe:
-                    print(E)  # TODO: logger.exception()
+                    _logger.exception("TimedThread ended with exception!")
                 else:
                     raise
 
@@ -247,6 +255,7 @@ class ThreadManager(object):
         self._pools = {}
         self._safe = safe
         self._running = False
+        self._shutdown = False
         self._stop_requested = False
         # Queue for sending items to the ThreadLauncher instance
         self._submission_queue = queue.Queue()
@@ -257,43 +266,66 @@ class ThreadManager(object):
         self._run_thread_launcher()
 
     def add(self, pool_name: str, func: Callable, args: Iterable = (), kwargs: Optional[Mapping[str, Any]] = None, get_ref: bool = False, timeout: Optional[float] = None):
-        """Add a new thread for a callable in the requested pool"""
+        """
+        Submit the callable to the requested pool
+        :param pool_name: str
+        :param func: Callable
+        :param args: Iterable (optional, typically a tuple) Single argument needs a trailing comma. e.g. (5,)
+        :param kwargs: Mapping (optional, typically a dict)
+        :param get_ref: bool whether or not to return a reference to the Future
+        :param timeout: float time to wait on getting the thread reference
+        :return:
+        """
         with self._rlock:
-            if self._stop_requested:
-                if self._safe:
-                    return  # TODO: normal log in this case
-                else:
-                    # TODO: Decide if I want to just raise an exception instead. Using a warning allows for simple
-                    #  handling with warning control (see warnings module docs) and allows for cleaner code in the
-                    #  calling function.
-                    warnings.warn(f"Stop was requested, not running thread for function {func}", StopNotificationWarning)
-                    return
+            if self._shutdown:
+                raise RuntimeError("add called after ThreadManager shutdown method was used")
 
             if pool_name not in self._pools:
                 raise ValueError(f"Pool does not exist with pool_name: {pool_name}")
 
+            caller = get_caller()
+            func_name = func.__name__ if hasattr(func, '__name__') else '<unknown function>'
+            pool: ThreadPoolWrapper = self._pools[pool_name]
+
+            if self._stop_requested and pool.obey_stop:
+                msg = f"ThreadManager::add - NOT going to run {func_name} submitted by {caller} as stop was requested"
+                if self._safe:
+                    _logger.info(msg)
+                    return
+                else:
+                    # TODO: Decide if I want to just raise an exception instead. Using a warning allows for simple
+                    #  handling with warning control (see warnings module docs) and allows for cleaner code in the
+                    #  calling function. I used a warning because there may be cases where someone wants to track down
+                    #  an issue by setting safe to False, but wouldn't want this case to halt their program..
+                    warnings.warn(msg, StopNotificationWarning)
+                    return
+
             # Keep the ThreadLauncher from exiting while we create and send the request, in case it times out now
             with self._launcher_lock:
-                self._running = True
-                thread_request = ThreadRequest(self._pools[pool_name], func, args, kwargs, get_ref)
+                if pool.state_updates_enabled and self._running is False:
+                    _logger.debug("ThreadManager::add - setting running to True")
+                    self._running = True
+                thread_request = ThreadRequest(pool, func, args, kwargs, get_ref)
                 self._submission_queue.put(thread_request)
             self._run_thread_launcher()
         if get_ref:
             return thread_request.get_thread(timeout=timeout)
 
-    def add_pool(self, name: str, pool_type: str = THREAD, runtime_alert: float = 0, worker_count: Optional[int] = None):
+    def add_pool(self, name: str, pool_type: str = THREAD, runtime_alert: float = 0, worker_count: Optional[int] = None) -> 'ThreadPoolController':
         """Add a new organizational pool for separating threads"""
         with self._rlock:
             if name in self._pools:
                 raise ValueError(f"Pool already exists with name of {name}")
             new_pool = ThreadPoolWrapper(name, pool_type, runtime_alert, worker_count)
             self._pools[name] = new_pool
+            return ThreadPoolController(new_pool)
 
+    # TODO: I removed the lock usage from go and no_go because it can keep threads from exiting when shutdown is called.
+    #  If lock is found to be necessary, make a second lock either for these or for the shutdown to avoid that issue.
     @property
     def go(self) -> bool:
         """Can be used in functions running in threads to determine if they should keep going"""
-        with self._rlock:
-            return not self._stop_requested
+        return self._stop_requested is False
 
     @property
     def idle(self):
@@ -303,14 +335,14 @@ class ThreadManager(object):
     @property
     def no_go(self) -> bool:
         """Can be used in functions running in threads to determine if they should stop"""
-        with self._rlock:
-            return self._stop_requested
+        return self._stop_requested
 
     def shutdown(self, wait: bool = True):
         # TODO: finish this.. shutdown all pools, which should join threads, etc.
         #  Set a flag or state that shutdown was called and block new adds..
         #  maybe allow cancel_all param or similar to cancel pending items
         with self._rlock:
+            self._shutdown = True
             if self._running:
                 self.stop()
             if self._thread_launcher_is_running():
@@ -373,6 +405,28 @@ class ThreadPool(object):
         pass
 
 
+class ThreadPoolController(object):
+    """Class allowing clients to control some attributes of ThreadPoolWrapper"""
+    def __init__(self, pool: 'ThreadPoolWrapper'):
+        self._pool = pool
+
+    def disable_state_updates(self):
+        """Prevent this pool from affecting ThreadManger's state (e.g. idle attribute)"""
+        self._pool.state_updates_enabled = False
+
+    def enable_state_updates(self):
+        """Allow this pool to affect ThreadManger's state (e.g. idle attribute)"""
+        self._pool.state_updates_enabled = True
+
+    def ignore_stop(self):
+        """Allow submission to this pool after stop was requested of ThreadManager"""
+        self._pool.obey_stop = False
+
+    def obey_stop(self):
+        """Block submission to this pool after stop was requested of ThreadManager"""
+        self._pool.obey_stop = True
+
+
 class ThreadPoolWrapper(object):
     """Internal class that is an abstraction layer for ThreadPoolExecutor and internal pool types"""
     _supported_types = (FUTURE, THREAD)
@@ -394,6 +448,12 @@ class ThreadPoolWrapper(object):
         self._rlock = threading.RLock()
         self._runtime_alert = runtime_alert
         self._type = pool_type
+
+        # Whether or not submissions are allowed in ThreadManager after stop was requested
+        self.obey_stop = False
+
+        # Whether or not ThreadManager will update its state when submitting to this pool
+        self.state_updates_enabled = True
 
         if pool_type == FUTURE:
             self._pool = TimedFutureThreadPool(max_workers=worker_count, thread_name_prefix=name)

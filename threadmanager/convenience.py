@@ -18,13 +18,13 @@
 # License along with threadmanager.
 # If not, see <https://www.gnu.org/licenses/>.
 
-"""
-The threadmanager package provides a way to manage and organize threads as well as keep track of state.
-It was originally created to encapsulate such functionality for use with GUIs to avoid blocking their main loop.
-"""
 
-from .log import *
-from .classes import ThreadManager
-from .constants import *
-from .exceptions import *
-from .statistics import *
+"""This module contains (typically) small convenience functions. (usually for de-duplication purposes)"""
+
+
+import sys
+
+
+def get_caller() -> str:
+    """Return the name of the caller's caller"""
+    return sys._getframe(2).f_code.co_name
