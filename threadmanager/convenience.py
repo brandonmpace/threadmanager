@@ -24,7 +24,10 @@
 
 import sys
 
-
-def get_caller() -> str:
-    """Return the name of the caller's caller"""
-    return sys._getframe(2).f_code.co_name
+if hasattr(sys, '_getframe'):
+    def get_caller() -> str:
+        """Return the name of the caller's caller"""
+        return sys._getframe(2).f_code.co_name
+else:
+    def get_caller() -> str:
+        return "<unknown>"
