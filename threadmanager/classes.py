@@ -26,7 +26,7 @@ import warnings
 
 from typing import Any, Callable, Iterable, Mapping, Optional
 
-from .convenience import get_caller
+from .convenience import get_caller, get_func_name
 from .constants import *
 from .exceptions import *
 from .log import create_logger
@@ -36,20 +36,22 @@ _logger = create_logger(__name__)
 
 
 class TimedFuture(concurrent.futures.Future):
-    def __init__(self):
+    def __init__(self, func_name: str, runtime_alert: float):
         super().__init__()
+        self._func_name = func_name
+        self._runtime_alert = runtime_alert
         self._time_started: float = 0.0
         self._time_completed: float = 0.0
 
     def set_exception(self, exception):
         with self._condition:
+            self._set_time_completed()
             _logger.exception("Future ended with an exception!")
-            self._time_completed = time.time()
             super().set_exception(exception)
 
     def set_result(self, result):
         with self._condition:
-            self._time_completed = time.time()
+            self._set_time_completed()
             super().set_result(result)
 
     def set_running_or_notify_cancel(self) -> bool:
@@ -57,7 +59,7 @@ class TimedFuture(concurrent.futures.Future):
             self._time_started = time.time()
             if super().set_running_or_notify_cancel() is False:
                 # Future was cancelled
-                self._time_completed = time.time()
+                self._set_time_completed()
                 return False
             else:
                 return True
@@ -74,17 +76,23 @@ class TimedFuture(concurrent.futures.Future):
                 else:
                     raise concurrent.futures.TimeoutError()
 
+    def _set_time_completed(self):
+        self._time_completed = time.time()
+        # TODO: log runtime statistics for self._func_name if enabled
+
 
 class TimedFutureThreadPool(concurrent.futures.ThreadPoolExecutor):
-    # TODO: maybe store function name in the TimedFuture: fn.__name__ when it has that attr.. (even lambda does)
-    #  This would be used for logging the time when over a set threshold..
+    def __init__(self, *args, runtime_alert: float = 0.0, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.runtime_alert = runtime_alert
+
     def submit(self, fn, *args, **kwargs):
         # Over-ridden to use TimedFuture instead
         with self._shutdown_lock:
             if self._shutdown:
                 raise RuntimeError('cannot schedule new futures after shutdown')
 
-            f = TimedFuture()
+            f = TimedFuture(get_func_name(fn), self.runtime_alert)
             w = concurrent.futures.thread._WorkItem(f, fn, args, kwargs)
 
             self._work_queue.put(w)
@@ -456,7 +464,7 @@ class ThreadPoolWrapper(object):
         self.state_updates_enabled = True
 
         if pool_type == FUTURE:
-            self._pool = TimedFutureThreadPool(max_workers=worker_count, thread_name_prefix=name)
+            self._pool = TimedFutureThreadPool(runtime_alert=runtime_alert, max_workers=worker_count, thread_name_prefix=name)
         elif pool_type == THREAD:
             raise NotImplementedError("TODO...")  # TODO: Create and use internal pool
 

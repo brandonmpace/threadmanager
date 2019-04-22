@@ -24,6 +24,9 @@
 
 import sys
 
+from typing import Callable
+
+
 if hasattr(sys, '_getframe'):
     def get_caller() -> str:
         """Return the name of the caller's caller"""
@@ -31,3 +34,7 @@ if hasattr(sys, '_getframe'):
 else:
     def get_caller() -> str:
         return "<unknown>"
+
+
+def get_func_name(func: Callable) -> str:
+    return func.__qualname__ if hasattr(func, '__qualname__') else '<unknown function>'
