@@ -29,6 +29,7 @@ from .convenience import get_caller
 _logger = None
 _loggers = set()
 _rlock = threading.RLock()
+_stream_handler_name = "threadmanager_stream"
 
 
 if not _logger:
@@ -50,9 +51,17 @@ def log_to_console():
     Another option is to enable this for root logger. e.g. logging.getLogger().addHandler(logging.StreamHandler())
     """
     handler = logging.StreamHandler()
+    handler.name = _stream_handler_name
     with _rlock:
         for logger in _loggers:
-            logger.addHandler(handler)
+            needs_handler = True
+            for handler in logger.handlers:
+                if handler.name == _stream_handler_name:
+                    needs_handler = False
+                    break
+            if needs_handler:
+                logger.addHandler(handler)
+
         _logger.debug(f"logging to console enabled for threadmanager. Caller: {get_caller()}")
 
 

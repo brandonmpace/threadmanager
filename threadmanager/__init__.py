@@ -23,8 +23,9 @@ The threadmanager package provides a way to manage and organize threads as well 
 It was originally created to encapsulate such functionality for use with GUIs to avoid blocking their main loop.
 """
 
-from .log import *
+from .log import log_to_console, set_log_level
 from .classes import ThreadManager
 from .constants import *
+from .convenience import get_caller, get_func_name
 from .exceptions import *
-from .statistics import *
+from .statistics import disable_statistics, enable_statistics, statistics_enabled

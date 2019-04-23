@@ -22,8 +22,18 @@
 """This is an extremely basic example"""
 
 
+import logging
 import threadmanager
 import time
+
+
+from logging.handlers import RotatingFileHandler
+
+
+logger = logging.getLogger()
+handler = RotatingFileHandler('example.log', maxBytes=20480, backupCount=10)
+logger.addHandler(handler)
+logger.setLevel(logging.WARNING)
 
 
 def continuous_func(work_time: float):
@@ -56,6 +66,11 @@ def fibonacci(input_number: int):
             count += 1
 
 
+def generate_exception():
+    """Intentionally generate an exception"""
+    a
+
+
 def log_time(item: str):
     print(f"{time.time()} - {item}")
 
@@ -79,7 +94,11 @@ def long_running_func(name: str, line_count: int, chunk_size: int = 2):
     log_time(f"completed {name} with chunk_size: {chunk_size}")
 
 
-if __name__ == "__main__":
+def main():
+    global tm
+    # threadmanager.log_to_console()
+    threadmanager.set_log_level(logging.DEBUG)
+
     tm = threadmanager.ThreadManager()
 
     test_pool_name = "testpool"
@@ -92,6 +111,8 @@ if __name__ == "__main__":
 
     second_item = tm.add(test_pool_name, continuous_func, args=(.5,), get_ref=True)
 
+    tm.add(test_pool_name, generate_exception)
+
     time.sleep(1)
 
     log_time("calling .stop()")
@@ -102,3 +123,7 @@ if __name__ == "__main__":
     tm.shutdown()
 
     log_time("exiting")
+
+
+if __name__ == "__main__":
+    main()

@@ -19,9 +19,6 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 
-import threading
-
-
 from .convenience import get_caller
 from .log import *
 

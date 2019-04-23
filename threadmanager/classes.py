@@ -247,10 +247,11 @@ class ThreadLauncher(threading.Thread):
                 with self._pending_lock:
                     if self._input_queue.empty():
                         break
+                    _logger.debug(f"{self.name} - kept alive by last-second submission")
 
             except BaseException:
                 if self._safe:
-                    _logger.exception("TimedThread ended with exception!")
+                    _logger.exception(f"{self.name} - Exception in ThreadRequest submission!")
                 else:
                     raise
 
@@ -370,11 +371,13 @@ class ThreadManager(object):
             if self._running:
                 self._running = False
                 self._stop_requested = True
+                _logger.debug(f"ThreadManager - stop requested, stop flag set. Caller: {get_caller()}")
                 return True
             elif self._safe:
+                _logger.warn(f"ThreadManager - stop requested when already stopped! Caller: {get_caller()}")
                 return False
             else:
-                raise RuntimeError("stop called while already stopped!")
+                raise RuntimeError("stop called while already stopped! Hint: Check .idle first")
 
     def _run_thread_launcher(self):
         with self._rlock:
@@ -382,6 +385,7 @@ class ThreadManager(object):
                 return
             else:
                 _name = f"threadlauncher{self._thread_launcher_runs}"
+                _logger.debug(f"ThreadManager - starting new ThreadLauncher instance as {_name}")
                 self._thread_launcher = ThreadLauncher(self, self._submission_queue, self._launcher_lock, self._thread_launcher_timeout, name=_name, safe=self._safe)
                 self._thread_launcher_runs += 1
 
