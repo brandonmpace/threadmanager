@@ -22,17 +22,23 @@
 """This module contains (typically) small convenience functions. (usually for de-duplication purposes)"""
 
 
-import sys
+import inspect
 
 from typing import Callable
 
 
-if hasattr(sys, '_getframe'):
-    def get_caller() -> str:
-        """Return the name of the caller's caller"""
-        return sys._getframe(2).f_code.co_name
-else:
-    def get_caller() -> str:
+def get_caller(filepath: bool = False) -> str:
+    """Return the name of the caller's caller. If filepath is True, also print the full filepath and line number"""
+    current_frame = inspect.currentframe()
+    if current_frame:
+        caller_code = current_frame.f_back.f_back.f_code
+        if filepath:
+            caller = f"{caller_code.co_name} at '{caller_code.co_filename}', line {caller_code.co_firstlineno}"
+        else:
+            caller = caller_code.co_name
+        del current_frame, caller_code
+        return caller
+    else:
         return "<unknown>"
 
 
