@@ -43,7 +43,7 @@ def continuous_func(work_time: float):
         log_time("continuous_func - doing work")
         time.sleep(work_time)
         return_value += 1
-    log_time("returning from continuous_func() as go is false")
+    log_time("returning from continuous_func() as go is False")
     return return_value
 
 
@@ -103,7 +103,8 @@ def main():
 
     test_pool_name = "testpool"
 
-    tm.add_pool(test_pool_name, threadmanager.FUTURE)
+    tm.add_pool(test_pool_name, threadmanager.THREAD)
+    # tm.add_pool(test_pool_name, threadmanager.FUTURE)
 
     log_time("adding threads")
 
