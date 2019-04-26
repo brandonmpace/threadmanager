@@ -261,11 +261,17 @@ class TimedThread(threading.Thread):
 
 class ThreadLauncher(threading.Thread):
     """A thread that launches and manages other threads"""
+    _count = 0
+    _rlock = threading.RLock()
+
     def __init__(
             self, master: 'ThreadManager', input_queue: queue.Queue, pending_lock: threading.Lock, timeout: float,
-            group=None, target=None, name=None, args: Iterable = (), kwargs: Mapping[str, Any] = None, safe=True
+            group=None, target=None, args: Iterable = (), kwargs: Mapping[str, Any] = None, safe=True
     ):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
+        with self._rlock:
+            name = f"threadlauncher{self._count}"
+            self._count += 1
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
         self._input_queue = input_queue
         self._master = master
@@ -322,6 +328,7 @@ class ThreadManager(object):
         self._thread_launcher_timeout = thread_launcher_timeout
         self._thread_monitor: ThreadMonitor = None
         self._run_thread_launcher()
+        self._run_thread_monitor()
 
     def add(self, pool_name: str, func: Callable, args: Iterable = (), kwargs: Optional[Mapping[str, Any]] = None, get_ref: bool = False, timeout: Optional[float] = None):
         """
@@ -364,9 +371,10 @@ class ThreadManager(object):
 
             # Keep the ThreadLauncher from exiting while we create and send the request, in case it times out now
             with self._launcher_lock:
-                if pool.state_updates_enabled and self._running is False:
-                    _logger.info("ThreadManager - setting running to True")
-                    self._running = True
+                if pool.state_updates_enabled:
+                    if self._running is False:
+                        _logger.info("ThreadManager - setting running to True")
+                        self._running = True
                 else:
                     _logger.debug(f"ThreadManager - not changing state because pool {pool_name} has this disabled")
                 _logger.debug(f"ThreadManager - submitting request to run function {func_name} requested by {caller}")
@@ -417,6 +425,8 @@ class ThreadManager(object):
                 self._submission_queue.put(None)  # Signal to ThreadLauncher that we're shutting down.
                 if wait:
                     self._submission_queue.join()
+            if self._thread_monitor_is_running():
+                self._pool_idle_event.set()
             for pool_item in self._pools.values():
                 pool_item.shutdown(wait=wait)
 
@@ -459,17 +469,29 @@ class ThreadManager(object):
                     #  If all relevant pools are idle, make sure ._running is False
                     # TODO: When there are threads running, log the count with _logger.info()
             if self._pool_idle_event.wait(1):
-                self._pool_idle_event.clear()  # Woken up by a state-affecting ThreadPoolWrapper becoming idle.
+                # Woken up by a state-affecting ThreadPoolWrapper becoming idle or by shutdown
+                if self._shutdown:
+                    break
+                self._pool_idle_event.clear()
 
     def _run_thread_launcher(self):
         with self._rlock:
             if self._thread_launcher_is_running():
                 return
             else:
-                _name = f"threadlauncher{self._thread_launcher_runs}"
-                _logger.info(f"ThreadManager - starting new ThreadLauncher instance as {_name}")
-                self._thread_launcher = ThreadLauncher(self, self._submission_queue, self._launcher_lock, self._thread_launcher_timeout, name=_name, safe=self._safe)
+                self._thread_launcher = ThreadLauncher(
+                    self, self._submission_queue, self._launcher_lock, self._thread_launcher_timeout, safe=self._safe
+                )
+                _logger.info(f"ThreadManager - started new ThreadLauncher instance as {self._thread_launcher.name}")
                 self._thread_launcher_runs += 1
+
+    def _run_thread_monitor(self):
+        with self._rlock:
+            if self._thread_monitor_is_running():
+                return
+            else:
+                self._thread_monitor = ThreadMonitor(target=self._monitor_pools)
+                _logger.info(f"ThreadManager - started new ThreadMonitor instance as {self._thread_monitor.name}")
 
     def _thread_launcher_is_running(self) -> bool:
         with self._rlock:
@@ -482,19 +504,26 @@ class ThreadManager(object):
 
 class ThreadMonitor(threading.Thread):
     """A thread that monitors other threads and gathers statistics when they are enabled"""
-    # TODO: This thread will iterate over the pools in a ThreadManager with the _monitor_threads method there
-    #  to check for running threads in pools that affect the ThreadManager state and make sure the state remains accurate.
-    pass
+    _count = 0
+    _rlock = threading.RLock()
+
+    def __init__(self, group=None, target=None, args: Iterable = (), kwargs: Mapping[str, Any] = None):
+        with self._rlock:
+            name = f"threadmonitor{self._count}"
+            self._count += 1
+        super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
+        self.daemon = True
+        self.start()
 
 
 class ThreadPool(object):
     """Internal class for grouping threads"""
     _thread_class = TimedThread
 
-    def __init__(self, master: 'ThreadPoolWrapper', name: str, max_running: Optional[int] = None, runtime_alert: float = 0.0, safe: bool = True):
-        # TODO: instantiate a queue, rlock, etc. Determine if there should be a single ThreadMonitor for all pools,
-        #  or if each pool should have a ThreadMonitor handling the queue and gathering statistics..
-        #  Use the name as the thread name prefix as well.
+    def __init__(
+            self, master: 'ThreadPoolWrapper', name: str, max_running: Optional[int] = None, runtime_alert: float = 0.0,
+            safe: bool = True
+    ):
         self._master = master
         self._max_running = max_running
         self._name = name
