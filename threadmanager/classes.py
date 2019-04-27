@@ -18,6 +18,7 @@
 # License along with threadmanager.
 # If not, see <https://www.gnu.org/licenses/>.
 
+import collections
 import concurrent.futures
 import queue
 import threading
@@ -26,7 +27,7 @@ import warnings
 
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional
 
-from .convenience import get_caller, get_func_name
+from .convenience import get_caller, get_func_name, print_tag
 from .constants import *
 from .exceptions import *
 from .log import create_logger
@@ -36,21 +37,23 @@ _logger = create_logger(__name__)
 
 
 class TimedFuture(concurrent.futures.Future):
-    def __init__(self, func_name: str, runtime_alert: float):
+    def __init__(self, func_name: str, runtime_alert: float, tag: str = ""):
         super().__init__()
         self._func_name = func_name
         self._runtime_alert = runtime_alert
+        self._tag = tag
         self._time_started: float = 0.0
         self._time_completed: float = 0.0
 
     @property
     def func_name(self):
         return self._func_name
+    name = func_name
 
     def set_exception(self, exception):
         with self._condition:
             self._set_time_completed()
-            _logger.exception("Future ended with an exception!")
+            _logger.exception(f"Future (func: {self._func_name}{print_tag(self.tag)}) ended with an exception!")
             super().set_exception(exception)
 
     def set_result(self, result):
@@ -67,6 +70,10 @@ class TimedFuture(concurrent.futures.Future):
                 return False
             else:
                 return True
+
+    @property
+    def tag(self):
+        return self._tag
 
     @property
     def time_started(self):
@@ -98,13 +105,13 @@ class TimedFutureThreadPool(concurrent.futures.ThreadPoolExecutor):
         self._master = master
         self.runtime_alert = runtime_alert
 
-    def submit(self, fn, *args, **kwargs):
+    def submit(self, tag: str, fn, *args, **kwargs):
         # Over-ridden to use TimedFuture instead
         with self._shutdown_lock:
             if self._shutdown:
                 raise RuntimeError('cannot schedule new futures after shutdown')
 
-            f = TimedFuture(get_func_name(fn), self.runtime_alert)
+            f = TimedFuture(get_func_name(fn), self.runtime_alert, tag=tag)
             w = concurrent.futures.thread._WorkItem(f, fn, args, kwargs)
 
             f.add_done_callback(self._master.discard_thread)
@@ -120,7 +127,7 @@ class TimedThread(threading.Thread):
     A thread that tracks start and completion times for statistics.
     There are some API similarities to Future objects to simplify other parts of this package.
     """
-    def __init__(self, master: 'ThreadPoolWrapper' = None, pool: 'ThreadPool' = None, group=None, target=None, name=None, args=(), kwargs=None, safe=True):
+    def __init__(self, master: 'ThreadPoolWrapper' = None, pool: 'ThreadPool' = None, group=None, tag: str = '', target=None, name=None, args=(), kwargs=None, safe=True):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
         self._rlock = threading.RLock()
@@ -134,6 +141,7 @@ class TimedThread(threading.Thread):
         self._result = None
         self._safe = safe
         self._state = INITIALIZED
+        self._tag = tag
         self._target = target
         self._time_started: float = 0.0
         self._time_completed: float = 0.0
@@ -149,7 +157,7 @@ class TimedThread(threading.Thread):
             else:
                 self._state = CANCELLED
                 self._time_started = self._time_completed = time.time()
-                self._notify_master()
+                self._notify_master(cancelled=True)
                 return True
 
     def cancelled(self) -> bool:
@@ -205,7 +213,7 @@ class TimedThread(threading.Thread):
         try:
             result = self._target(*self._args, **self._kwargs)
         except BaseException as E:
-            _logger.exception("TimedThread ended with an exception!")
+            _logger.exception(f"TimedThread (func: {self._func_name}{print_tag(self._tag)}) ended with an exception!")
             if self._safe:
                 with self._condition:
                     self._exception = E
@@ -225,6 +233,10 @@ class TimedThread(threading.Thread):
     def running(self):
         with self._condition:
             return self._state == RUNNING
+
+    @property
+    def tag(self):
+        return self._tag
 
     @property
     def time_started(self):
@@ -249,14 +261,15 @@ class TimedThread(threading.Thread):
                 else:
                     raise WaitTimeout
 
-    def _notify_master(self):
+    def _notify_master(self, cancelled: bool = False):
         """
         Notify the master ThreadPoolWrapper that we've either completed or have been cancelled.
         This should only be called from .run() as it means the thread was actually started.
         """
         if self._master:
             self._master.discard_thread(self)
-            self._pool.queue_check()
+            print(self._func_name)
+            self._pool.queue_check(cancelled=cancelled)
 
 
 class ThreadLauncher(threading.Thread):
@@ -330,7 +343,7 @@ class ThreadManager(object):
         self._run_thread_launcher()
         self._run_thread_monitor()
 
-    def add(self, pool_name: str, func: Callable, args: Iterable = (), kwargs: Optional[Mapping[str, Any]] = None, get_ref: bool = False, timeout: Optional[float] = None):
+    def add(self, pool_name: str, func: Callable, args: Iterable = (), kwargs: Optional[Mapping[str, Any]] = None, get_ref: bool = False, timeout: Optional[float] = None, tag: str = ""):
         """
         Submit the callable to the requested pool
         :param pool_name: str
@@ -339,12 +352,15 @@ class ThreadManager(object):
         :param kwargs: Mapping (optional, typically a dict)
         :param get_ref: bool whether or not to return a reference to the Future
         :param timeout: float time to wait on getting the thread reference
+        :param tag: str alphanumeric string to append to thread name for easier tracking
         :return:
         """
         with self._rlock:
             if self._shutdown:
                 raise RuntimeError("add called after ThreadManager shutdown method was used")
 
+            if tag and tag.isalnum() is False:
+                raise ValueError(f"tag value of '{tag}' contains unsupported characters. Hint: Use an alphanumeric string")
             if pool_name not in self._pools:
                 raise ValueError(f"Pool does not exist with pool_name: {pool_name}")
 
@@ -378,7 +394,7 @@ class ThreadManager(object):
                 else:
                     _logger.debug(f"ThreadManager - not changing state because pool {pool_name} has this disabled")
                 _logger.debug(f"ThreadManager - submitting request to run function {func_name} requested by {caller}")
-                thread_request = ThreadRequest(pool, func, args, kwargs, get_ref)
+                thread_request = ThreadRequest(pool, func, args, kwargs, get_ref, tag)
                 self._submission_queue.put(thread_request)
             self._run_thread_launcher()
         if get_ref:
@@ -391,7 +407,7 @@ class ThreadManager(object):
                 raise RuntimeError("add_pool called after ThreadManager shutdown method was used")
             if name in self._pools:
                 raise ValueError(f"Pool already exists with name of {name}")
-            new_pool = ThreadPoolWrapper(name, pool_type, runtime_alert, self._pool_idle_event, worker_count, safe=self._safe)
+            new_pool = ThreadPoolWrapper(self, name, pool_type, runtime_alert, self._pool_idle_event, worker_count=worker_count, safe=self._safe)
             with self._pool_lock:
                 self._pools[name] = new_pool
             return ThreadPoolController(new_pool)
@@ -418,9 +434,16 @@ class ThreadManager(object):
         #  Set a flag or state that shutdown was called and block new adds..
         #  maybe allow cancel_all param or similar to cancel pending items
         with self._rlock:
-            self._shutdown = True
+            if self._shutdown:
+                if self._safe:
+                    _logger.warn(f"ThreadManager - shutdown called more than once! Caller: {get_caller()}")
+                    return
+                else:
+                    raise RuntimeError(f"ThreadManager - shutdown called more than once! Caller: {get_caller()}")
+            _logger.info(f"ThreadManager - shutdown requested. Caller: {get_caller()}")
             if self._running:
                 self.stop()
+            self._shutdown = True
             if self._thread_launcher_is_running():
                 self._submission_queue.put(None)  # Signal to ThreadLauncher that we're shutting down.
                 if wait:
@@ -437,8 +460,13 @@ class ThreadManager(object):
         """
         # TODO: After becoming idle, be sure to set _stop_requested back to False
         with self._rlock:
+            if self._shutdown:
+                if self._safe:
+                    _logger.warn("ThreadManager - stop called after shutdown! Hint: check .idle")
+                    return
+                else:
+                    raise RuntimeError("ThreadManager - stop called after shutdown! Hint: check .idle")
             if self._running:
-                self._running = False
                 self._stop_requested = True
                 _logger.info(f"ThreadManager - stop requested, stop flag set. Caller: {get_caller()}")
                 self._cancel_all()
@@ -459,15 +487,31 @@ class ThreadManager(object):
     def _monitor_pools(self):
         """Internal function for use by ThreadMonitor thread"""
         while True:
+            busy_pool = False
             with self._pool_lock:
                 for pool_name, thread_pool in self._pools.items():
-                    if thread_pool.idle():
-                        continue
+                    if busy_pool is False:
+                        if thread_pool.state_updates_enabled and (thread_pool.idle() is False):
+                            busy_pool = True
+                            _logger.debug(f"ThreadManager - pool {pool_name} is not idle")
                     # TODO: Add a method in ThreadPoolWrapper that checks if any threads have gone past the max runtime.
-                    #  Use it here and log the pool name and name of thread func with _logger.info()
-                    # TODO: If there are pools that should update our state and are not idle, update ._running as needed
-                    #  If all relevant pools are idle, make sure ._running is False
-                    # TODO: When there are threads running, log the count with _logger.info()
+                    #  Use it and log the pool name and name of thread func with _logger.info()
+                    # TODO: When there are threads running, maybe log the count with _logger.info()
+
+            with self._rlock:
+                if busy_pool:
+                    if self._running is False:
+                        _logger.debug("ThreadManager - there is a busy pool, setting state to not idle")
+                        self._running = True
+                else:
+                    if self._stop_requested:
+                        _logger.info("ThreadManager - stop completed, removing flag")
+                        self._stop_requested = False
+                    if self._running:
+                        _logger.debug("ThreadManager - all state-affecting pools are idle, setting state to idle")
+                        self._running = False
+
+            # Go back to waiting on an idle event:
             if self._pool_idle_event.wait(1):
                 # Woken up by a state-affecting ThreadPoolWrapper becoming idle or by shutdown
                 if self._shutdown:
@@ -491,7 +535,7 @@ class ThreadManager(object):
                 return
             else:
                 self._thread_monitor = ThreadMonitor(target=self._monitor_pools)
-                _logger.info(f"ThreadManager - started new ThreadMonitor instance as {self._thread_monitor.name}")
+        _logger.info(f"ThreadManager - started new ThreadMonitor instance as {self._thread_monitor.name}")
 
     def _thread_launcher_is_running(self) -> bool:
         with self._rlock:
@@ -518,7 +562,7 @@ class ThreadMonitor(threading.Thread):
 
 class ThreadPool(object):
     """Internal class for grouping threads"""
-    _thread_class = TimedThread
+    _rlock = threading.RLock()
 
     def __init__(
             self, master: 'ThreadPoolWrapper', name: str, max_running: Optional[int] = None, runtime_alert: float = 0.0,
@@ -527,39 +571,77 @@ class ThreadPool(object):
         self._master = master
         self._max_running = max_running
         self._name = name
-        self._pending_queue = queue.Queue()
+        self._pending_queue: collections.deque[TimedThread] = collections.deque()
         self._rlock = threading.RLock()
         self._runtime_alert = runtime_alert
         self._safe = safe
+        self._shutdown = False
 
-    def queue_check(self):
+    def cancel_all(self):
+        with self._rlock:
+            for pending_item in self._pending_queue:
+                pending_item.cancel()
+
+    def queue_check(self, cancelled: bool = False):
         """If there is a limit for concurrent threads, start the next one if needed"""
-        if self._max_running and (self._master.active_count() < self._max_running):
-            try:
-                next_thread = self._pending_queue.get_nowait()
-            except queue.Empty():
+        with self._rlock:
+            if self._shutdown:
+                if cancelled:
+                    return
+                _logger.info(f"ThreadPool ({self._name}) - not starting next thread as shutdown was requested")
+                self._empty_pending_queue()
+                return
+            elif self._master.master.no_go and self._master.obey_stop:
+                if cancelled:
+                    return
+                _logger.info(
+                    f"ThreadPool ({self._name}) - not starting next thread as stop was requested and obey_stop is True"
+                )
                 return
 
-            next_thread.start()
+            if self._max_running and (self._master.active_count() < self._max_running):
+                try:
+                    next_thread = self._pending_queue.popleft()
+                    self._master.track_thread(next_thread)
+                    next_thread.start()
+                except IndexError:
+                    return
 
-    def submit(self, func, *args, **kwargs):
-        thread_name = f"{self._name}-{get_func_name(func)}"
+    def submit(self, tag: str, func, *args, **kwargs):
+        thread_name = f"{self._name}-{get_func_name(func)}{f'-{tag}' if tag else ''}"
+        if self._shutdown:
+            _logger.warn(f"ThreadPool ({self._name}) - not running thread {thread_name} due to shutdown request")
+            if self._safe:
+                return None
+            else:
+                raise RuntimeError(f"ThreadPool ({self._name}) - thread {thread_name} submitted after shutdown!")
         new_thread = TimedThread(
-            master=self._master, pool=self, target=func, name=thread_name, args=args, kwargs=kwargs, safe=self._safe
+            master=self._master, pool=self, tag=tag, target=func, name=thread_name, args=args, kwargs=kwargs, safe=self._safe
         )
 
-        self._master.track_thread(new_thread)
-
-        if self._max_running and (self._master.active_count() >= self._max_running):
-            self._pending_queue.put(new_thread)  # Too many threads already running, queue this one.
-        else:
-            new_thread.start()
+        with self._rlock:
+            if self._max_running and (self._master.active_count() >= self._max_running):
+                self._pending_queue.append(new_thread)  # Too many threads already running, queue this one.
+            else:
+                self._master.track_thread(new_thread)
+                new_thread.start()
 
         return new_thread
 
     def shutdown(self, wait: bool = True):
-        # TODO: block new submissions, empty the queue and join all the currently running threads.
-        pass
+        # TODO: empty the queue and join all the currently running threads.
+        self._shutdown = True
+
+    def _empty_pending_queue(self):
+        with self._rlock:
+            if self._pending_queue:
+                _logger.info(f"ThreadPool ({self._name}) - removing all pending threads from the queue")
+                while True:
+                    try:
+                        next_thread = self._pending_queue.popleft()
+                        next_thread.cancel()
+                    except IndexError:
+                        return
 
 
 class ThreadPoolController(object):
@@ -588,7 +670,7 @@ class ThreadPoolWrapper(object):
     """Internal class that is an abstraction layer for ThreadPoolExecutor and internal pool types"""
     _supported_types = (FUTURE, THREAD)
 
-    def __init__(self, name: str, pool_type: str, runtime_alert: float, idle_event: threading.Event, worker_count: Optional[int] = None, safe: bool = True):
+    def __init__(self, master: ThreadManager, name: str, pool_type: str, runtime_alert: float, idle_event: threading.Event, worker_count: Optional[int] = None, safe: bool = True):
         """
         Initializes a ThreadPoolWrapper
         :param name: str name of the pool. This should be alphanumeric
@@ -597,13 +679,16 @@ class ThreadPoolWrapper(object):
         :param worker_count: int max number of threads allowed to run at the same time
         """
         if name.isalnum() is False:
-            raise ValueError("Pool name value contains unsupported characters. Hint: Use an alphanumeric string")
+            raise ValueError(
+                f"Pool name value of '{name}' contains unsupported characters. Hint: Use an alphanumeric string"
+            )
         if pool_type not in self._supported_types:
             raise ValueError(f"Unrecognized pool type: {pool_type}")
 
         self._active_threads = set()
         self._idle_event = idle_event
         self._name = name
+        self._master = master
         self._pool: [TimedFutureThreadPool, ThreadPool] = None
         self._rlock = threading.RLock()
         self._runtime_alert = runtime_alert
@@ -629,12 +714,20 @@ class ThreadPoolWrapper(object):
     def cancel_all(self):
         """Attempt to cancel all threads"""
         with self._rlock:
+            _logger.debug(f"ThreadPoolWrapper ({self._name}) - attempting to cancel all threads")
+            if self._type == THREAD:
+                self._pool.cancel_all()
             for thread_obj in self._active_threads:
                 thread_obj.cancel()
 
     def discard_thread(self, thread_obj: [TimedFuture, TimedThread]):
         """Internal method used in tracking active threads"""
         with self._rlock:
+            if thread_obj not in self._active_threads:
+                return
+            _logger.debug(
+                f"ThreadPoolWrapper ({self._name}) - thread completed - name: {thread_obj.name}{print_tag(thread_obj.tag)}"
+            )
             self._active_threads.discard(thread_obj)
             if self.idle() and self.state_updates_enabled:
                 self._idle_event.set()
@@ -643,21 +736,28 @@ class ThreadPoolWrapper(object):
         with self._rlock:
             return not self._active_threads
 
+    @property
+    def master(self):
+        return self._master
+
     def shutdown(self, wait: bool = True):
         self._pool.shutdown(wait=wait)
 
-    def submit(self, func: Callable, *args, **kwargs):
-        return self._pool.submit(func, *args, **kwargs)
+    def submit(self, tag: str, func: Callable, *args, **kwargs,):
+        return self._pool.submit(tag, func, *args, **kwargs)
 
     def track_thread(self, thread_obj: [TimedFuture, TimedThread]):
         """Internal method used in tracking active threads"""
         with self._rlock:
+            _logger.debug(
+                f"ThreadPoolWrapper ({self._name}) - thread added - name: {thread_obj.name}{print_tag(thread_obj.tag)}"
+            )
             self._active_threads.add(thread_obj)
 
 
 class ThreadRequest(object):
     """Internal class that is used for queueing requests and returning thread objects when requested"""
-    def __init__(self, pool: ThreadPoolWrapper, func: Callable, args: Iterable, kwargs: Mapping[str, Any], get_ref: bool):
+    def __init__(self, pool: ThreadPoolWrapper, func: Callable, args: Iterable, kwargs: Mapping[str, Any], get_ref: bool, tag: str):
         self._rlock = threading.RLock()
         self._condition = threading.Condition(self._rlock)
         self.pool: ThreadPoolWrapper = pool
@@ -665,6 +765,7 @@ class ThreadRequest(object):
         self.args = args
         self.kwargs = kwargs if kwargs else {}
         self.get_ref = get_ref
+        self.tag = tag
         self._thread = None
 
     def get_thread(self, timeout: float = None):
@@ -689,6 +790,6 @@ class ThreadRequest(object):
             self._condition.notify_all()
 
     def submit(self):
-        thread_obj = self.pool.submit(self.func, *self.args, **self.kwargs)
+        thread_obj = self.pool.submit(self.tag, self.func, *self.args, **self.kwargs)
         if self.get_ref:
             self.set_thread(thread_obj)

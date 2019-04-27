@@ -44,3 +44,15 @@ def get_caller(filepath: bool = False) -> str:
 
 def get_func_name(func: Callable) -> str:
     return func.__qualname__ if hasattr(func, '__qualname__') else '<unknown function>'
+
+
+def print_valid(prefix: str, item: str):
+    if item:
+        return f"{prefix}{item}"
+    else:
+        return ""
+
+
+def print_tag(tag: str) -> str:
+    """Used to shorten the code in places where nothing should be printed if tag is empty"""
+    return print_valid(" tag: ", tag)

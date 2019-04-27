@@ -94,6 +94,12 @@ def long_running_func(name: str, line_count: int, chunk_size: int = 2):
     log_time(f"completed {name} with chunk_size: {chunk_size}")
 
 
+def print_after(period: float):
+    """print hello after given period of seconds"""
+    time.sleep(period)
+    log_time(f"hello (after {period})")
+
+
 def main():
     global tm
     # threadmanager.log_to_console()
@@ -112,7 +118,7 @@ def main():
 
     second_item = tm.add(test_pool_name, continuous_func, args=(.5,), get_ref=True)
 
-    tm.add(test_pool_name, generate_exception)
+    tm.add(test_pool_name, generate_exception, tag="exc")
 
     time.sleep(1)
 
