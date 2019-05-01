@@ -45,6 +45,15 @@ class TimedFuture(concurrent.futures.Future):
         self._time_started: float = 0.0
         self._time_completed: float = 0.0
 
+    def current_runtime(self) -> float:
+        """Return the time since start. Returns total runtime if already finished running."""
+        if self._state == concurrent.futures._base.PENDING:
+            raise RuntimeError("current_runtime called before TimedThread started")
+        elif self.done():
+            return self.total_runtime()
+        else:
+            return time.time() - self._time_started
+
     @property
     def func_name(self):
         return self._func_name
@@ -164,6 +173,15 @@ class TimedThread(threading.Thread):
         with self._condition:
             return self._state == CANCELLED
 
+    def current_runtime(self) -> float:
+        """Return the time since start. Returns total runtime if already finished running."""
+        if self._state == INITIALIZED:
+            raise RuntimeError("current_runtime called before TimedThread started")
+        elif self.done():
+            return self.total_runtime()
+        else:
+            return time.time() - self._time_started
+
     def done(self):
         with self._condition:
             return self._state in (CANCELLED, COMPLETED)
@@ -268,7 +286,6 @@ class TimedThread(threading.Thread):
         """
         if self._master:
             self._master.discard_thread(self)
-            print(self._func_name)
             self._pool.queue_check(cancelled=cancelled)
 
 
@@ -337,7 +354,7 @@ class ThreadManager(object):
         # Queue for sending items to the ThreadLauncher instance
         self._submission_queue = queue.Queue()
         self._thread_launcher: ThreadLauncher = None
-        self._thread_launcher_runs = 0
+        self._thread_launcher_runs: int = 0
         self._thread_launcher_timeout = thread_launcher_timeout
         self._thread_monitor: ThreadMonitor = None
         self._run_thread_launcher()
