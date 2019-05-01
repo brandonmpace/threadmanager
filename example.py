@@ -109,7 +109,7 @@ def main():
 
     test_pool_name = "testpool"
 
-    tm.add_pool(test_pool_name, threadmanager.THREAD)
+    tm.add_pool(test_pool_name, threadmanager.FUTURE, runtime_alert=1)
     # tm.add_pool(test_pool_name, threadmanager.FUTURE)
 
     log_time("adding threads")

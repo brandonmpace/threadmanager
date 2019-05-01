@@ -86,7 +86,7 @@ class TimedFuture(concurrent.futures.Future):
     def set_exception(self, exception):
         with self._condition:
             self._set_time_completed()
-            _logger.exception(f"Future (func: {self._func_name}{print_tag(self.tag)}) ended with an exception!")
+            _logger.exception(f"TimedFuture (func: {self._func_name}{print_tag(self.tag)}) ended with an exception!")
             super().set_exception(exception)
 
     def set_result(self, result):
@@ -463,9 +463,12 @@ class ThreadManager(object):
                 raise RuntimeError("add_pool called after ThreadManager shutdown method was used")
             if name in self._pools:
                 raise ValueError(f"Pool already exists with name of {name}")
+
             new_pool = ThreadPoolWrapper(self, name, pool_type, runtime_alert, self._pool_idle_event, worker_count=worker_count, safe=self._safe)
+
             with self._pool_lock:
                 self._pools[name] = new_pool
+
             return ThreadPoolController(new_pool)
 
     # TODO: I removed the lock usage from go and no_go because it can keep threads from exiting when shutdown is called.
@@ -558,19 +561,24 @@ class ThreadManager(object):
         while True:
             busy_pool = False
             with self._pool_lock:
+                active_thread_count = 0
                 for pool_name, thread_pool in self._pools.items():
-                    if busy_pool is False:
-                        if thread_pool.state_updates_enabled and (thread_pool.idle() is False):
-                            busy_pool = True
-                            _logger.debug(f"ThreadManager - pool {pool_name} is not idle")
-                    # TODO: Add a method in ThreadPoolWrapper that checks if any threads have gone past the max runtime.
-                    #  Use it and log the pool name and name of thread func with _logger.info()
-                    # TODO: When there are threads running, maybe log the count with _logger.info()
+                    if thread_pool.idle():
+                        continue
+                    elif thread_pool.state_updates_enabled and (busy_pool is False):
+                        busy_pool = True
+                        _logger.debug(f"ThreadManager - pool {pool_name} is not idle")
+
+                    active_thread_count += thread_pool.active_count()
+                    thread_pool.runtime_check()
+
+                if active_thread_count:
+                    _logger.info(f"ThreadManager - {active_thread_count} active threads counted during this loop")
 
             with self._rlock:
                 if busy_pool:
                     if self._running is False:
-                        _logger.debug("ThreadManager - there is a busy pool, setting state to not idle")
+                        _logger.debug("ThreadManager - there is a busy pool, setting idle to False")
                         # TODO: I'm not sure if I like this running under the rlock. Determine if it's truly an issue.
                         self._set_running(True)
                 else:
@@ -578,7 +586,7 @@ class ThreadManager(object):
                         _logger.info("ThreadManager - stop completed, removing flag")
                         self._stop_requested = False
                     if self._running:
-                        _logger.debug("ThreadManager - all state-affecting pools are idle, setting state to idle")
+                        _logger.debug("ThreadManager - all state-affecting pools are idle, setting idle to True")
                         self._set_running(False)
 
             # Go back to waiting on an idle event:
@@ -786,10 +794,11 @@ class ThreadPoolWrapper(object):
             raise ValueError(
                 f"Pool name value of '{name}' contains unsupported characters. Hint: Use an alphanumeric string"
             )
-        if pool_type not in self._supported_types:
-            raise ValueError(f"Unrecognized pool type: {pool_type}")
 
-        self._active_threads = set()
+        if runtime_alert < 0:
+            raise ValueError(f"runtime_alert must be greater than or equal to 0, got {runtime_alert}")
+
+        self._active_threads: Set[TimedThread, TimedFuture] = set()
         self._idle_event = idle_event
         self._name = name
         self._master = master
@@ -809,11 +818,18 @@ class ThreadPoolWrapper(object):
             self._pool = TimedFutureThreadPool(self, runtime_alert=runtime_alert, max_workers=worker_count, thread_name_prefix=name)
         elif pool_type == THREAD:
             self._pool = ThreadPool(self, name, max_running=worker_count, runtime_alert=runtime_alert, safe=self._safe)
+        elif pool_type in self._supported_types:
+            raise NotImplementedError(f"It seems that pool type of {pool_type} is not yet implemented")
+        else:
+            raise ValueError(f"Unrecognized pool type: {pool_type}")
 
     def active_count(self) -> int:
-        """Number of threads that are running or will run soon"""
+        """Number of threads that are running"""
         with self._rlock:
-            return len(self._active_threads)
+            if self._type == FUTURE:
+                return len([item.running() for item in self._active_threads])
+            else:
+                return len(self._active_threads)
 
     def cancel_all(self):
         """Attempt to cancel all threads"""
@@ -824,15 +840,15 @@ class ThreadPoolWrapper(object):
             for thread_obj in self._active_threads:
                 thread_obj.cancel()
 
-    def discard_thread(self, thread_obj: [TimedFuture, TimedThread]):
+    def discard_thread(self, thread_item: [TimedFuture, TimedThread]):
         """Internal method used in tracking active threads"""
         with self._rlock:
-            if thread_obj not in self._active_threads:
+            if thread_item not in self._active_threads:
                 return
             _logger.debug(
-                f"ThreadPoolWrapper ({self._name}) - thread completed - name: {thread_obj.name}{print_tag(thread_obj.tag)}"
+                f"ThreadPoolWrapper ({self._name}) - thread completed - name: {thread_item.name}{print_tag(thread_item.tag)}"
             )
-            self._active_threads.discard(thread_obj)
+            self._active_threads.discard(thread_item)
             if self.idle() and self.state_updates_enabled:
                 self._idle_event.set()
 
@@ -843,6 +859,28 @@ class ThreadPoolWrapper(object):
     @property
     def master(self):
         return self._master
+
+    @property
+    def name(self):
+        return self._name
+
+    def runtime_check(self) -> bool:
+        """
+        Check if there are threads that have run longer than the pool's runtime_alert, if set.
+        :return: bool True if runtime_alert is > 0 and there is an active thread that ran longer than it
+        """
+        if self._runtime_alert:
+            alert = False
+            with self._rlock:
+                for thread_item in self._active_threads:
+                    if thread_item.running():
+                        current_runtime = thread_item.current_runtime()
+                        if current_runtime > self._runtime_alert:
+                            _logger.info(f"ThreadPoolWrapper ({self._name}) - thread {thread_item.name}{print_tag(thread_item.tag)} running longer than alert time of {self._runtime_alert}. Runtime: {current_runtime}")
+                            alert = True
+                return alert
+        else:
+            return False
 
     def shutdown(self, wait: bool = True):
         self._pool.shutdown(wait=wait)
