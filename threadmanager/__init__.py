@@ -25,7 +25,7 @@ It was originally created to encapsulate such functionality for use with GUIs to
 
 from .log import log_to_console, set_log_level
 from .classes import ThreadManager
-from .constants import *
+from .constants import FUTURE, THREAD
 from .convenience import get_caller, get_func_name
 from .exceptions import *
 from .statistics import disable_statistics, enable_statistics, statistics_enabled

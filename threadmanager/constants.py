@@ -19,6 +19,12 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 
+# Callback types
+IDLE = 'IDLE'
+START = 'START'
+STOP = 'STOP'
+
+
 # States for TimedThread
 CANCELLED = 'CANCELLED'
 COMPLETED = 'COMPLETED'
