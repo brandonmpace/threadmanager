@@ -47,6 +47,12 @@ def get_func_name(func: Callable) -> str:
 
 
 def print_valid(prefix: str, item: str):
+    """
+    Used to return a string if not null, with optional prefix
+    :param prefix: str optional item to place before the item if it is not null
+    :param item: item to return if not null
+    :return: str
+    """
     if item:
         return f"{prefix}{item}"
     else:
@@ -56,3 +62,12 @@ def print_valid(prefix: str, item: str):
 def print_tag(tag: str) -> str:
     """Used to shorten the code in places where nothing should be printed if tag is empty"""
     return print_valid(" tag: ", tag)
+
+
+def thread_nametag(thread_item) -> str:
+    """
+    Convenience function to shorten printing the name and tag (when present) associated with a thread object
+    :param thread_item: [TimedThread, TimedFuture]
+    :return: str
+    """
+    return f"{thread_item.name}{print_tag(thread_item.tag)}"

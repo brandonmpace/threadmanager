@@ -27,7 +27,7 @@ import warnings
 
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set
 
-from .convenience import get_caller, get_func_name, print_tag
+from .convenience import get_caller, get_func_name, thread_nametag
 from .constants import *
 from .exceptions import *
 from .log import create_logger
@@ -86,7 +86,7 @@ class TimedFuture(concurrent.futures.Future):
     def set_exception(self, exception):
         with self._condition:
             self._set_time_completed()
-            _logger.exception(f"TimedFuture (func: {self._func_name}{print_tag(self.tag)}) ended with an exception!")
+            _logger.exception(f"TimedFuture (func: {thread_nametag(self)}) ended with an exception!")
             super().set_exception(exception)
 
     def set_result(self, result):
@@ -254,7 +254,7 @@ class TimedThread(threading.Thread):
         try:
             result = self._target(*self._args, **self._kwargs)
         except BaseException as E:
-            _logger.exception(f"TimedThread (func: {self._func_name}{print_tag(self._tag)}) ended with an exception!")
+            _logger.exception(f"TimedThread (func: {thread_nametag(self)}) ended with an exception!")
             if self._safe:
                 with self._condition:
                     self._exception = E
@@ -846,7 +846,7 @@ class ThreadPoolWrapper(object):
             if thread_item not in self._active_threads:
                 return
             _logger.debug(
-                f"ThreadPoolWrapper ({self._name}) - thread completed - name: {thread_item.name}{print_tag(thread_item.tag)}"
+                f"ThreadPoolWrapper ({self._name}) - thread completed - name: {thread_nametag(thread_item)}"
             )
             self._active_threads.discard(thread_item)
             if self.idle() and self.state_updates_enabled:
@@ -876,7 +876,9 @@ class ThreadPoolWrapper(object):
                     if thread_item.running():
                         current_runtime = thread_item.current_runtime()
                         if current_runtime > self._runtime_alert:
-                            _logger.info(f"ThreadPoolWrapper ({self._name}) - thread {thread_item.name}{print_tag(thread_item.tag)} running longer than alert time of {self._runtime_alert}. Runtime: {current_runtime}")
+                            _logger.info(
+                                f"ThreadPoolWrapper ({self._name}) - thread {thread_nametag(thread_item)} running longer than alert time of {self._runtime_alert}. Runtime: {current_runtime}"
+                            )
                             alert = True
                 return alert
         else:
@@ -892,7 +894,7 @@ class ThreadPoolWrapper(object):
         """Internal method used in tracking active threads"""
         with self._rlock:
             _logger.debug(
-                f"ThreadPoolWrapper ({self._name}) - thread added - name: {thread_obj.name}{print_tag(thread_obj.tag)}"
+                f"ThreadPoolWrapper ({self._name}) - thread added - name: {thread_nametag(thread_obj)}"
             )
             self._active_threads.add(thread_obj)
 
