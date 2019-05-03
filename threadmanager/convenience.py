@@ -46,6 +46,14 @@ def get_func_name(func: Callable) -> str:
     return func.__qualname__ if hasattr(func, '__qualname__') else '<unknown function>'
 
 
+def pluralize(count: int) -> str:
+    """Convenience function used to place an 's' at the end of a word when needed"""
+    if count == 1:
+        return ""
+    else:
+        return "s"
+
+
 def print_valid(prefix: str, item: str):
     """
     Used to return a string if not null, with optional prefix
@@ -64,10 +72,19 @@ def print_tag(tag: str) -> str:
     return print_valid(" tag: ", tag)
 
 
+def thread_func_tag(thread_item) -> str:
+    """
+    Convenience function to shorten printing the function name and tag (when present) associated with a thread object
+    :param thread_item: Union[TimedThread, TimedFuture]
+    :return: str
+    """
+    return f"func: {thread_item.func_name}{print_tag(thread_item.tag)}"
+
+
 def thread_nametag(thread_item) -> str:
     """
     Convenience function to shorten printing the name and tag (when present) associated with a thread object
-    :param thread_item: [TimedThread, TimedFuture]
+    :param thread_item: Union[TimedThread, TimedFuture]
     :return: str
     """
     return f"{thread_item.name}{print_tag(thread_item.tag)}"

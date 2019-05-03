@@ -31,9 +31,12 @@ from logging.handlers import RotatingFileHandler
 
 
 logger = logging.getLogger()
-handler = RotatingFileHandler('example.log', maxBytes=20480, backupCount=10)
+log_format = "[%(process)d] [%(thread)d] %(asctime)s (%(threadName)s) - [%(levelname)s] %(message)s"
+formatter = logging.Formatter(fmt=log_format)
+handler = RotatingFileHandler("example.log", maxBytes=20480, backupCount=10)
+handler.setFormatter(formatter)
 logger.addHandler(handler)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.DEBUG)
 
 
 def continuous_func(work_time: float):
@@ -73,6 +76,7 @@ def generate_exception():
 
 def log_time(item: str):
     print(f"{time.time()} - {item}")
+    logger.debug(item)
 
 
 def long_running_func(name: str, line_count: int, chunk_size: int = 2):
@@ -109,7 +113,7 @@ def main():
 
     test_pool_name = "testpool"
 
-    tm.add_pool(test_pool_name, threadmanager.FUTURE, runtime_alert=1)
+    tm.add_pool(test_pool_name, threadmanager.THREAD, runtime_alert=1)
     # tm.add_pool(test_pool_name, threadmanager.FUTURE)
 
     log_time("adding threads")

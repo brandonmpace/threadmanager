@@ -50,8 +50,11 @@ def log_to_console():
     Allows clients to enable printing log items to the console for only the loggers in this package.
     Another option is to enable this for root logger. e.g. logging.getLogger().addHandler(logging.StreamHandler())
     """
+    log_format = "[%(process)d] [%(thread)d] %(asctime)s (%(threadName)s) - [%(levelname)s] %(message)s"
+    formatter = logging.Formatter(fmt=log_format)
     handler = logging.StreamHandler()
     handler.name = _stream_handler_name
+    handler.setFormatter(formatter)
     with _rlock:
         for logger in _loggers:
             needs_handler = True
@@ -62,7 +65,7 @@ def log_to_console():
             if needs_handler:
                 logger.addHandler(handler)
 
-        _logger.debug(f"logging to console enabled for threadmanager. Caller: {get_caller()}")
+        _logger.debug(f"logging to console enabled for threadmanager modules. Caller: {get_caller()}")
 
 
 def set_log_level(level: int):
@@ -70,4 +73,4 @@ def set_log_level(level: int):
     with _rlock:
         for logger in _loggers:
             logger.setLevel(level)
-        _logger.debug(f"threadmanager log level set to {logging.getLevelName(level)} by {get_caller()}")
+        _logger.debug(f"threadmanager modules log level set to {logging.getLevelName(level)} by {get_caller()}")
