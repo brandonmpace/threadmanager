@@ -165,7 +165,7 @@ class TimedThread(threading.Thread):
         self._rlock = threading.RLock()
         self._condition = threading.Condition(self._rlock)
         self._args = args
-        self._kwargs = kwargs
+        self._kwargs = (kwargs if kwargs else {})
         self._exception = None
         self._func_name = get_func_name(target)
         self._master = master
@@ -522,7 +522,7 @@ class ThreadManager(object):
                 self._stop_requested = True
                 _logger.info(f"ThreadManager - stop requested, stop flag set. Caller: {get_caller()}")
                 self._cancel_all()
-                self._run_callbacks(STOP)
+                self._run_callback_thread(STOP)
                 return True
             elif self._safe:
                 _logger.warn(f"ThreadManager - stop requested when already stopped! Caller: {get_caller()}")
@@ -597,10 +597,12 @@ class ThreadManager(object):
 
         self._callbacks[callback.type].discard(callback)
 
-    def _run_callbacks(self, callback_type: str):
+    def _run_callback_thread(self, callback_type: str):
         if callback_type not in self._callbacks:
             raise ValueError(f"callback type {callback_type} missing in ThreadManager instance!")
+        TimedThread(target=self._run_callbacks, name=f"callbacks-{callback_type}", args=(callback_type,)).start()
 
+    def _run_callbacks(self, callback_type: str):
         with self._callback_lock:
             for callback_item in self._callbacks[callback_type]:
                 # TODO: need a way to identify/log callbacks that block excessively.
@@ -640,9 +642,9 @@ class ThreadManager(object):
 
             # TODO: I'm not sure I like this running under rlock. Determine it it's really an issue.
             if value:
-                self._run_callbacks(START)
+                self._run_callback_thread(START)
             else:
-                self._run_callbacks(IDLE)
+                self._run_callback_thread(IDLE)
 
     def _thread_launcher_is_running(self) -> bool:
         with self._rlock:
