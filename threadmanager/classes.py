@@ -494,6 +494,10 @@ class ThreadManager(object):
         return self._running is False
 
     @property
+    def name(self):
+        return self._name
+
+    @property
     def no_go(self) -> bool:
         """Can be used in functions running in threads to determine if they should stop"""
         return self._stop_requested
