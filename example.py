@@ -109,7 +109,11 @@ def main():
     # threadmanager.log_to_console()
     threadmanager.set_log_level(logging.DEBUG)
 
-    tm = threadmanager.ThreadManager()
+    tm = threadmanager.ThreadManager("example")
+
+    tm.add_idle_callback(log_time, "went idle")
+    tm.add_start_callback(log_time, "started")
+    tm.add_stop_callback(log_time, "stopped")
 
     test_pool_name = "testpool"
 

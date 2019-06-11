@@ -363,16 +363,24 @@ class ThreadLauncher(threading.Thread):
 
 
 class ThreadManager(object):
+    _instances: Dict[str, 'ThreadManager'] = {}
     _supported_callback_types = (IDLE, START, STOP)
-    # TODO: Add the various callback items and maybe have ThreadMonitor run them
+
     """A class for managing, organizing and tracking threads"""
-    def __init__(self, safe=True, thread_launcher_timeout: float = 30):
+    def __init__(self, name: str, safe=True, thread_launcher_timeout: float = 30):
         self._callbacks: Dict[str, Set[Callback]] = {cb_type: set() for cb_type in self._supported_callback_types}
+
+        # thread locking items
         self._callback_lock = threading.RLock()
         self._rlock = threading.RLock()
         self._launcher_lock = threading.Lock()
         self._pool_idle_event = threading.Event()
         self._pool_lock = threading.RLock()
+
+        if name in self._instances:
+            raise ValueError(f"ThreadManager already exists with name: {name}")
+        self._instances[name] = self
+        self._name = name
         self._pools: Dict[str, ThreadPoolWrapper] = {}
         self._safe = safe
         self._running = False
@@ -438,15 +446,15 @@ class ThreadManager(object):
         if get_ref:
             return thread_request.get_thread(timeout=timeout)
 
-    def add_idle_callback(self, func: Callable, *args, **kwargs):
+    def add_idle_callback(self, func: Callable, *args, **kwargs) -> Callback:
         """Add a callback to run when all state-affecting pools go idle and ThreadManager state changes to idle"""
         return self._add_callback(IDLE, func, *args, **kwargs)
 
-    def add_start_callback(self, func: Callable, *args, **kwargs):
+    def add_start_callback(self, func: Callable, *args, **kwargs) -> Callback:
         """Add a callback to run when any state-affecting pool causes ThreadManager state to no longer be idle"""
         return self._add_callback(START, func, *args, **kwargs)
 
-    def add_stop_callback(self, func: Callable, *args, **kwargs):
+    def add_stop_callback(self, func: Callable, *args, **kwargs) -> Callback:
         """Add a callback to run when ThreadManager.stop() is called (also called during shutdown)"""
         return self._add_callback(STOP, func, *args, **kwargs)
 
@@ -464,6 +472,14 @@ class ThreadManager(object):
                 self._pools[name] = new_pool
 
             return ThreadPoolController(new_pool)
+
+    @classmethod
+    def get_instance(cls, name: str) -> 'ThreadManager':
+        """Get an existing ThreadManager instance"""
+        if name in cls._instances:
+            return cls._instances[name]
+        else:
+            raise ValueError(f"ThreadManager instance does not exist with name: {name}")
 
     # TODO: I removed the lock usage from go and no_go because it can keep threads from exiting when shutdown is called.
     #  If lock is found to be necessary, make a second lock either for these or for the shutdown to avoid that issue.
@@ -495,6 +511,7 @@ class ThreadManager(object):
                     raise RuntimeError(f"ThreadManager - shutdown called more than once! Caller: {get_caller()}")
             _logger.info(f"ThreadManager - shutdown requested. Caller: {get_caller()}")
             if self._running:
+                _logger.info("ThreadManager - still running, calling stop function")
                 self.stop()
             self._shutdown = True
             if self._thread_launcher_is_running():
@@ -513,11 +530,12 @@ class ThreadManager(object):
         """
         with self._rlock:
             if self._shutdown:
+                msg = f"ThreadManager - stop called after shutdown! Caller: {get_caller()}"
                 if self._safe:
-                    _logger.warn("ThreadManager - stop called after shutdown! Hint: check .idle")
-                    return
+                    _logger.warn(msg)
+                    return False
                 else:
-                    raise RuntimeError("ThreadManager - stop called after shutdown! Hint: check .idle")
+                    raise RuntimeError(msg)
             if self._running:
                 self._stop_requested = True
                 _logger.info(f"ThreadManager - stop requested, stop flag set. Caller: {get_caller()}")
@@ -531,10 +549,7 @@ class ThreadManager(object):
                 raise RuntimeError("stop called while already stopped! Hint: Check .idle first")
 
     def _add_callback(self, callback_type: str, func: Callable, *args, **kwargs) -> Callback:
-        if callback_type not in self._supported_callback_types:
-            raise ValueError(
-                f"callback_type of {callback_type} is not in supported types: {self._supported_callback_types}"
-            )
+        self._validate_callback_type(callback_type)
 
         callback = Callback(self._remove_callback, callback_type, func, *args, **kwargs)
 
@@ -592,15 +607,17 @@ class ThreadManager(object):
                 self._pool_idle_event.clear()
 
     def _remove_callback(self, callback: Callback):
-        if callback.type not in self._callbacks:
-            raise ValueError(f"callback type {callback.type} missing in ThreadManager instance!")
-
+        """Removes a callback. To trigger this, call .remove() on the Callback object."""
+        self._validate_callback_type(callback.type)
         self._callbacks[callback.type].discard(callback)
 
-    def _run_callback_thread(self, callback_type: str):
-        if callback_type not in self._callbacks:
-            raise ValueError(f"callback type {callback_type} missing in ThreadManager instance!")
-        TimedThread(target=self._run_callbacks, name=f"callbacks-{callback_type}", args=(callback_type,)).start()
+    def _run_callback_thread(self, callback_type: str) -> TimedThread:
+        self._validate_callback_type(callback_type)
+
+        thread_obj = TimedThread(target=self._run_callbacks, name=f"callbacks-{callback_type}", args=(callback_type,))
+        thread_obj.start()
+
+        return thread_obj
 
     def _run_callbacks(self, callback_type: str):
         with self._callback_lock:
@@ -636,11 +653,12 @@ class ThreadManager(object):
         """:return: bool True if state was changed"""
         with self._rlock:
             if self._running == value:
+                _logger.warn(f"ThreadManager - attempt to set _running to the existing value! Caller: {get_caller()}")
                 return False
             else:
                 self._running = value
 
-            # TODO: I'm not sure I like this running under rlock. Determine it it's really an issue.
+            # TODO: I'm not sure I like this running under rlock. Determine if it's really an issue.
             if value:
                 self._run_callback_thread(START)
             else:
@@ -653,6 +671,15 @@ class ThreadManager(object):
     def _thread_monitor_is_running(self) -> bool:
         with self._rlock:
             return self._thread_monitor and self._thread_monitor.is_alive()
+
+    def _validate_callback_type(self, callback_type: str):
+        if callback_type not in self._supported_callback_types:
+            raise ValueError(
+                f"callback_type of {callback_type} is not in supported types: {self._supported_callback_types}"
+            )
+
+        if callback_type not in self._callbacks:
+            raise ValueError(f"callback type {callback_type} missing in ThreadManager instance!")
 
 
 class ThreadMonitor(threading.Thread):
