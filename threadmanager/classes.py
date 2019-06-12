@@ -404,14 +404,14 @@ class ThreadManager(object):
         :param kwargs: Mapping (optional, typically a dict)
         :param get_ref: bool whether or not to return a reference to the Future
         :param timeout: float time to wait on getting the thread reference
-        :param tag: str alphanumeric string to append to thread name for easier tracking
+        :param tag: str alphanumeric (- and _ allowed) string to append to thread name for easier tracking
         :return:
         """
         with self._rlock:
             if self._shutdown:
                 raise RuntimeError("add called after ThreadManager shutdown method was used")
 
-            if tag and tag.isalnum() is False:
+            if tag and tag.replace('-', '').replace('_', '').isalnum() is False:
                 raise ValueError(f"tag value of '{tag}' contains unsupported characters. Hint: Use an alphanumeric string")
             if pool_name not in self._pools:
                 raise ValueError(f"Pool does not exist with pool_name: {pool_name}")
@@ -509,7 +509,7 @@ class ThreadManager(object):
         with self._rlock:
             if self._shutdown:
                 if self._safe:
-                    _logger.warn(f"ThreadManager - shutdown called more than once! Caller: {get_caller()}")
+                    _logger.warning(f"ThreadManager - shutdown called more than once! Caller: {get_caller()}")
                     return
                 else:
                     raise RuntimeError(f"ThreadManager - shutdown called more than once! Caller: {get_caller()}")
@@ -536,7 +536,7 @@ class ThreadManager(object):
             if self._shutdown:
                 msg = f"ThreadManager - stop called after shutdown! Caller: {get_caller()}"
                 if self._safe:
-                    _logger.warn(msg)
+                    _logger.warning(msg)
                     return False
                 else:
                     raise RuntimeError(msg)
@@ -547,7 +547,7 @@ class ThreadManager(object):
                 self._run_callback_thread(STOP)
                 return True
             elif self._safe:
-                _logger.warn(f"ThreadManager - stop requested when already stopped! Caller: {get_caller()}")
+                _logger.warning(f"ThreadManager - stop requested when already stopped! Caller: {get_caller()}")
                 return False
             else:
                 raise RuntimeError("stop called while already stopped! Hint: Check .idle first")
@@ -657,7 +657,7 @@ class ThreadManager(object):
         """:return: bool True if state was changed"""
         with self._rlock:
             if self._running == value:
-                _logger.warn(f"ThreadManager - attempt to set _running to the existing value! Caller: {get_caller()}")
+                _logger.warning(f"ThreadManager - attempt to set _running to the existing value! Caller: {get_caller()}")
                 return False
             else:
                 self._running = value
@@ -750,7 +750,7 @@ class ThreadPool(object):
     def submit(self, tag: str, func, *args, **kwargs):
         thread_name = f"{self._name}-{get_func_name(func)}"
         if self._shutdown:
-            _logger.warn(f"ThreadPool ({self._name}) - not running thread {thread_name} due to shutdown request")
+            _logger.warning(f"ThreadPool ({self._name}) - not running thread {thread_name} due to shutdown request")
             if self._safe:
                 return None
             else:
