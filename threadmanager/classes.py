@@ -324,7 +324,7 @@ class ThreadLauncher(threading.Thread):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
         with self._rlock:
             name = f"threadlauncher{self._count}"
-            self._count += 1
+            type(self)._count += 1
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
         self._input_queue = input_queue
         self._master = master
@@ -694,7 +694,7 @@ class ThreadMonitor(threading.Thread):
     def __init__(self, group=None, target=None, args: Iterable = (), kwargs: Mapping[str, Any] = None):
         with self._rlock:
             name = f"threadmonitor{self._count}"
-            self._count += 1
+            type(self)._count += 1
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
         self.daemon = True
         self.start()
