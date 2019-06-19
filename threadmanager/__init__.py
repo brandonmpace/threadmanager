@@ -23,6 +23,15 @@ The threadmanager package provides a way to manage and organize threads as well 
 It was originally created to encapsulate such functionality for use with GUIs to avoid blocking their main loop.
 """
 
+
+__author__ = "Brandon M. Pace"
+__copyright__ = "Copyright 2019, Brandon M. Pace"
+__license__ = "GNU LGPL 3+"
+__maintainer__ = "Brandon M. Pace"
+__status__ = "Development"  # not Production yet as extra features are being implemented
+__version__ = "0.0.1"
+
+
 from .log import log_to_console, set_log_level
 from .classes import ThreadManager
 from .constants import FUTURE, THREAD
