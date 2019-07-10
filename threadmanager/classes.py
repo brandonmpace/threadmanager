@@ -915,7 +915,7 @@ class ThreadPoolWrapper(object):
     def shutdown(self, wait: bool = True):
         self._pool.shutdown(wait=wait)
 
-    def submit(self, tag: str, func: Callable, *args, **kwargs,) -> Optional[Union[TimedThread, TimedFuture]]:
+    def submit(self, tag: str, func: Callable, *args, **kwargs) -> Optional[Union[TimedThread, TimedFuture]]:
         ret_val = self._pool.submit(tag, func, *args, **kwargs)
         self._wake_thread_monitor()
         return ret_val
