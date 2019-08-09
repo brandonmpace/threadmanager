@@ -20,7 +20,7 @@
 
 
 from .convenience import get_caller
-from .log import *
+from .log import create_logger
 
 
 _logger = create_logger(__name__)

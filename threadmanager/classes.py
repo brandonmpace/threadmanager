@@ -503,9 +503,7 @@ class ThreadManager(object):
         return self._stop_requested
 
     def shutdown(self, wait: bool = True):
-        # TODO: finish this.. shutdown all pools, which should join threads, etc.
-        #  Set a flag or state that shutdown was called and block new adds..
-        #  maybe allow cancel_all param or similar to cancel pending items
+        # TODO: maybe allow cancel_all param or similar to cancel pending items in pools
         with self._rlock:
             if self._shutdown:
                 if self._safe:
@@ -657,8 +655,12 @@ class ThreadManager(object):
         """:return: bool True if state was changed"""
         with self._rlock:
             if self._running == value:
-                _logger.warning(f"ThreadManager - attempt to set _running to the existing value! Caller: {get_caller()}")
-                return False
+                msg = f"ThreadManager - attempt to set _running to the existing value! Caller: {get_caller()}"
+                if self._safe:
+                    _logger.warning(msg)
+                    return False
+                else:
+                    raise RuntimeError(msg)
             else:
                 self._running = value
 
