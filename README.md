@@ -1,7 +1,7 @@
 # threadmanager
 A thread manager for Python programs
 
-##### Current state:  under heavy development (alpha)
+##### Current state: Under development (beta)
 
 
 It provides:  

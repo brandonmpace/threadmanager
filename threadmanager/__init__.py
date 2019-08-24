@@ -28,8 +28,8 @@ __author__ = "Brandon M. Pace"
 __copyright__ = "Copyright 2019, Brandon M. Pace"
 __license__ = "GNU LGPL 3+"
 __maintainer__ = "Brandon M. Pace"
-__status__ = "Development"  # not Production yet as extra features are being implemented
-__version__ = "0.0.1"
+__status__ = "Development"  # Used in production, but still have planned features pending
+__version__ = "0.0.2"
 
 
 from .log import log_to_console, set_log_level
