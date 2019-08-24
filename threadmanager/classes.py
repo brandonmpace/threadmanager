@@ -720,6 +720,7 @@ class ThreadPool(object):
         self._shutdown = False
 
     def cancel_all(self):
+        """Cancel all threads that are waiting to run"""
         with self._rlock:
             for pending_item in self._pending_queue:
                 pending_item.cancel()
@@ -883,21 +884,24 @@ class ThreadPoolWrapper(object):
                 self._wake_thread_monitor()
 
     def idle(self) -> bool:
+        """True if the pool has no actively running threads"""
         with self._rlock:
             return not self._active_threads
 
     @property
     def master(self):
+        """Get the ThreadManager instance managing this pool"""
         return self._master
 
     @property
     def name(self):
+        """Get the name assigned to this pool"""
         return self._name
 
     def runtime_check(self) -> bool:
         """
         Check if there are threads that have run longer than the pool's runtime_alert, if set.
-        :return: bool True if runtime_alert is > 0 and there is an active thread that ran longer than it
+        :return: bool True if runtime_alert is > 0 and there is an active thread that ran longer than specified there.
         """
         if self._runtime_alert:
             alert = False
@@ -918,6 +922,7 @@ class ThreadPoolWrapper(object):
         self._pool.shutdown(wait=wait)
 
     def submit(self, tag: str, func: Callable, *args, **kwargs) -> Optional[Union[TimedThread, TimedFuture]]:
+        """Add a function to be ran in a thread by the pool"""
         ret_val = self._pool.submit(tag, func, *args, **kwargs)
         self._wake_thread_monitor()
         return ret_val
