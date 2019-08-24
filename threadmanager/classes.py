@@ -867,7 +867,7 @@ class ThreadPoolWrapper(object):
             _logger.debug(f"ThreadPoolWrapper ({self._name}) - attempting to cancel all threads")
             if self._type == THREAD:
                 self._pool.cancel_all()
-            for thread_obj in self._active_threads:
+            for thread_obj in self._active_threads.copy():
                 thread_obj.cancel()
 
     def discard_thread(self, thread_item: [TimedFuture, TimedThread]):
