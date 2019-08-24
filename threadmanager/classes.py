@@ -840,10 +840,10 @@ class ThreadPoolWrapper(object):
         self._type = pool_type
 
         # Whether or not submissions are allowed in ThreadManager after stop was requested
-        self.obey_stop = True
+        self._obey_stop = True
 
         # Whether or not ThreadManager will update its state when submitting to this pool
-        self.state_updates_enabled = True
+        self._state_updates_enabled = True
 
         if pool_type == FUTURE:
             self._pool = TimedFutureThreadPool(self, runtime_alert=runtime_alert, max_workers=worker_count, thread_name_prefix=name)
@@ -889,14 +889,24 @@ class ThreadPoolWrapper(object):
             return not self._active_threads
 
     @property
-    def master(self):
+    def master(self) -> ThreadManager:
         """Get the ThreadManager instance managing this pool"""
         return self._master
 
     @property
-    def name(self):
+    def name(self) -> str:
         """Get the name assigned to this pool"""
         return self._name
+
+    @property
+    def obey_stop(self) -> bool:
+        """Whether or not submissions are allowed in ThreadManager after stop was requested"""
+        return self._obey_stop
+
+    @obey_stop.setter
+    def obey_stop(self, value: bool):
+        self._obey_stop = value
+        _logger.debug(f"Pool {self._name} configured to {'obey' if value else 'ignore'} stop commands")
 
     def runtime_check(self) -> bool:
         """
@@ -920,6 +930,16 @@ class ThreadPoolWrapper(object):
 
     def shutdown(self, wait: bool = True):
         self._pool.shutdown(wait=wait)
+
+    @property
+    def state_updates_enabled(self) -> bool:
+        """Whether or not ThreadManager will update its state when submitting to this pool"""
+        return self._state_updates_enabled
+
+    @state_updates_enabled.setter
+    def state_updates_enabled(self, value: bool):
+        self._state_updates_enabled = value
+        _logger.debug(f"Pool {self._name} configured to {'' if value else 'not '}affect ThreadManager state")
 
     def submit(self, tag: str, func: Callable, *args, **kwargs) -> Optional[Union[TimedThread, TimedFuture]]:
         """Add a function to be ran in a thread by the pool"""
