@@ -24,6 +24,7 @@ IDLE = 'IDLE'
 START = 'START'
 STOP = 'STOP'
 
+DEFAULT_WORKER_COUNT = 5
 
 # States for TimedThread
 CANCELLED = 'CANCELLED'

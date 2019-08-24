@@ -458,7 +458,7 @@ class ThreadManager(object):
         """Add a callback to run when ThreadManager.stop() is called (also called during shutdown)"""
         return self._add_callback(STOP, func, *args, **kwargs)
 
-    def add_pool(self, name: str, pool_type: str = THREAD, runtime_alert: float = 0, worker_count: Optional[int] = None) -> 'ThreadPoolController':
+    def add_pool(self, name: str, pool_type: str = THREAD, runtime_alert: float = 0, worker_count: int = DEFAULT_WORKER_COUNT) -> 'ThreadPoolController':
         """Add a new organizational pool for separating threads"""
         with self._rlock:
             if self._shutdown:
@@ -707,7 +707,7 @@ class ThreadPool(object):
     _rlock = threading.RLock()
 
     def __init__(
-            self, master: 'ThreadPoolWrapper', name: str, max_running: Optional[int] = None, runtime_alert: float = 0.0,
+            self, master: 'ThreadPoolWrapper', name: str, max_running: int = DEFAULT_WORKER_COUNT, runtime_alert: float = 0.0,
             safe: bool = True
     ):
         self._master = master
@@ -813,7 +813,7 @@ class ThreadPoolWrapper(object):
     """Internal class that is an abstraction layer for ThreadPoolExecutor and internal pool types"""
     _supported_types = (FUTURE, THREAD)
 
-    def __init__(self, master: ThreadManager, name: str, pool_type: str, runtime_alert: float, idle_event: threading.Event, worker_count: Optional[int] = None, safe: bool = True):
+    def __init__(self, master: ThreadManager, name: str, pool_type: str, runtime_alert: float, idle_event: threading.Event, worker_count: int = DEFAULT_WORKER_COUNT, safe: bool = True):
         """
         Initializes a ThreadPoolWrapper
         :param name: str name of the pool. This should be alphanumeric
