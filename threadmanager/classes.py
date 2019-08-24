@@ -153,6 +153,14 @@ class TimedFutureThreadPool(concurrent.futures.ThreadPoolExecutor):
             self._adjust_thread_count()
             return f
 
+    @property
+    def worker_count(self):
+        return self._max_workers
+
+    @worker_count.setter
+    def worker_count(self, value: int):
+        raise NotImplementedError("On-the-fly worker count adjustment has not been implemented for Future-based pools")
+
 
 class TimedThread(threading.Thread):
     """
@@ -749,6 +757,15 @@ class ThreadPool(object):
                     next_thread.start()
                 except IndexError:
                     return
+            elif self._max_running == 0:  # can happen if user changed to 0, will run ALL pending threads NOW
+                try:
+                    next_thread = self._pending_queue.popleft()
+                    while next_thread:
+                        self._master.track_thread(next_thread)
+                        next_thread.start()
+                        next_thread = self._pending_queue.popleft()
+                except IndexError:
+                    return
 
     def submit(self, tag: str, func, *args, **kwargs):
         thread_name = f"{self._name}-{get_func_name(func)}"
@@ -774,6 +791,19 @@ class ThreadPool(object):
     def shutdown(self, wait: bool = True):
         # TODO: empty the queue and join all the currently running threads.
         self._shutdown = True
+
+    @property
+    def worker_count(self):
+        return self._max_running
+
+    @worker_count.setter
+    def worker_count(self, value: int):
+        if isinstance(value, int) is False:
+            raise ValueError(f"New worker count for ThreadPool must be int. Got value {value} with type {type(value)}")
+        elif value < 0:
+            raise ValueError("New worker count for ThreadPool must be 0 or higher")
+        self._max_running = value
+        _logger.info(f"ThreadPool {self._name} worker count adjusted to {value}")
 
     def _empty_pending_queue(self):
         with self._rlock:
@@ -807,6 +837,14 @@ class ThreadPoolController(object):
     def obey_stop(self):
         """Block submission to this pool after stop was requested of ThreadManager"""
         self._pool.obey_stop = True
+
+    def set_worker_count(self, value: int):
+        """Change the maximum number of worker threads for the pool"""
+        self._pool.set_worker_count(value)
+
+    @property
+    def worker_count(self) -> int:
+        return self._pool.worker_count
 
 
 class ThreadPoolWrapper(object):
@@ -928,6 +966,9 @@ class ThreadPoolWrapper(object):
         else:
             return False
 
+    def set_worker_count(self, value: int):
+        self._pool.worker_count = value
+
     def shutdown(self, wait: bool = True):
         self._pool.shutdown(wait=wait)
 
@@ -954,6 +995,10 @@ class ThreadPoolWrapper(object):
                 f"ThreadPoolWrapper ({self._name}) - thread added - name: {thread_nametag(thread_obj)}"
             )
             self._active_threads.add(thread_obj)
+
+    @property
+    def worker_count(self):
+        return self._pool.worker_count
 
     def _wake_thread_monitor(self):
         """Used to make sure the ThreadMonitor runs another check loop now (to keep state updated properly)"""
