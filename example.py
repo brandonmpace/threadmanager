@@ -30,10 +30,11 @@ import time
 from logging.handlers import RotatingFileHandler
 
 
+logfile = "example.log"
 logger = logging.getLogger()
 log_format = "[%(process)d] [%(thread)d] %(asctime)s (%(threadName)s) - [%(levelname)s] %(message)s"
 formatter = logging.Formatter(fmt=log_format)
-handler = RotatingFileHandler("example.log", maxBytes=20480, backupCount=10)
+handler = RotatingFileHandler(logfile, maxBytes=20480, backupCount=9)
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 logger.setLevel(logging.DEBUG)
@@ -138,6 +139,8 @@ def main():
     tm.shutdown()
 
     log_time("exiting")
+
+    print(f"Check the logfile {logfile} for the example log output")
 
 
 if __name__ == "__main__":
