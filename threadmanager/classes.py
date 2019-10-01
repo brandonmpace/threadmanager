@@ -727,11 +727,10 @@ class ThreadPool(object):
         self._safe = safe
         self._shutdown = False
 
-    def cancel_all(self):
+    def cancel_pending_threads(self):
         """Cancel all threads that are waiting to run"""
         with self._rlock:
-            for pending_item in self._pending_queue:
-                pending_item.cancel()
+            self._empty_pending_queue()
 
     def queue_check(self, cancelled: bool = False):
         """If there is a limit for concurrent threads, start the next one if needed"""
@@ -809,12 +808,13 @@ class ThreadPool(object):
         with self._rlock:
             if self._pending_queue:
                 _logger.info(f"ThreadPool ({self._name}) - removing all pending threads from the queue")
-                while True:
-                    try:
-                        next_thread = self._pending_queue.popleft()
+                try:
+                    next_thread = self._pending_queue.popleft()
+                    while next_thread:
                         next_thread.cancel()
-                    except IndexError:
-                        return
+                        next_thread = self._pending_queue.popleft()
+                except IndexError:
+                    return
 
 
 class ThreadPoolController(object):
@@ -905,7 +905,7 @@ class ThreadPoolWrapper(object):
         with self._rlock:
             _logger.debug(f"ThreadPoolWrapper ({self._name}) - attempting to cancel all threads")
             if self._type == THREAD:
-                self._pool.cancel_all()
+                self._pool.cancel_pending_threads()
             for thread_obj in self._active_threads.copy():
                 thread_obj.cancel()
 
