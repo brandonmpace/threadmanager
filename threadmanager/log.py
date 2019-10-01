@@ -57,12 +57,10 @@ def log_to_console():
     handler.setFormatter(formatter)
     with _rlock:
         for logger in _loggers:
-            needs_handler = True
             for handler in logger.handlers:
                 if handler.name == _stream_handler_name:
-                    needs_handler = False
                     break
-            if needs_handler:
+            else:  # no break
                 logger.addHandler(handler)
 
         _logger.debug(f"logging to console enabled for threadmanager modules. Caller: {get_caller()}")

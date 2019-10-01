@@ -32,9 +32,15 @@ __status__ = "Development"  # Used in production, but still have planned feature
 __version__ = "0.0.2"
 
 
+import logging
+
+
 from .log import log_to_console, set_log_level
 from .classes import ThreadManager
 from .constants import FUTURE, THREAD
 from .convenience import get_caller, get_func_name
 from .exceptions import *
 from .statistics import disable_statistics, enable_statistics, statistics_enabled
+
+
+logger = logging.getLogger(__name__)
