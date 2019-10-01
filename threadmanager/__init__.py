@@ -29,7 +29,7 @@ __copyright__ = "Copyright 2019, Brandon M. Pace"
 __license__ = "GNU LGPL 3+"
 __maintainer__ = "Brandon M. Pace"
 __status__ = "Development"  # Used in production, but still have planned features pending
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 
 import logging
