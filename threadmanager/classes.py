@@ -752,8 +752,20 @@ class ThreadPool(object):
             if self._max_running and (self._master.active_count() < self._max_running):
                 try:
                     next_thread = self._pending_queue.popleft()
-                    self._master.track_thread(next_thread)
-                    next_thread.start()
+
+                    while next_thread and next_thread.cancelled():
+                        next_thread = self._pending_queue.popleft()
+
+                    if next_thread:
+                        if next_thread.running() or next_thread.done():
+                            _logger.critical(
+                                f'ThreadPool ({self._name}) - thread has already been started: {thread_nametag(next_thread)}'
+                            )
+                        else:
+                            self._master.track_thread(next_thread)
+                            next_thread.start()
+                    else:
+                        _logger.debug(f'ThreadPool ({self._name}) - empty result from queue')
                 except IndexError:
                     return
             elif self._max_running == 0:  # can happen if user changed to 0, will run ALL pending threads NOW
