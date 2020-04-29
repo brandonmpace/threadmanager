@@ -163,7 +163,7 @@ class TimedFutureThreadPool(concurrent.futures.ThreadPoolExecutor):
         # Over-ridden to use TimedFuture instead
         with self._shutdown_lock:
             if self._shutdown:
-                raise RuntimeError('cannot schedule new futures after shutdown')
+                raise RuntimeError("cannot schedule new futures after shutdown")
 
             f = TimedFuture(get_func_name(fn), self.runtime_alert, tag=tag)
             w = concurrent.futures.thread._WorkItem(f, fn, args, kwargs)
@@ -189,7 +189,7 @@ class TimedThread(threading.Thread):
     A thread that tracks start and completion times for statistics.
     There are some API similarities to Future objects to simplify other parts of this package.
     """
-    def __init__(self, master: 'ThreadPoolWrapper' = None, pool: 'ThreadPool' = None, group=None, tag: str = '', target=None, name=None, args=(), kwargs=None, safe=True):
+    def __init__(self, master: 'ThreadPoolWrapper' = None, pool: 'ThreadPool' = None, group=None, tag: str = "", target=None, name=None, args=(), kwargs=None, safe=True):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
         super().__init__(group=group, target=target, name=name, args=args, kwargs=kwargs)
         self._rlock = threading.RLock()
@@ -444,8 +444,10 @@ class ThreadManager(object):
             if self._shutdown:
                 raise RuntimeError("add called after ThreadManager shutdown method was used")
 
-            if tag and tag.replace('-', '').replace('_', '').isalnum() is False:
-                raise ValueError(f"tag value of '{tag}' contains unsupported characters. Hint: Use an alphanumeric string")
+            if tag and tag.replace("-", "").replace("_", "").isalnum() is False:
+                raise ValueError(
+                    f"tag value of '{tag}' contains unsupported characters. Hint: Use an alphanumeric string"
+                )
             if pool_name not in self._pools:
                 raise ValueError(f"Pool does not exist with pool_name: {pool_name}")
 
@@ -779,13 +781,13 @@ class ThreadPool(object):
                     if next_thread:
                         if next_thread.running() or next_thread.done():
                             logger.critical(
-                                f'ThreadPool ({self._name}) - thread has already been started: {thread_nametag(next_thread)}'
+                                f"ThreadPool ({self._name}) - thread has already been started: {thread_nametag(next_thread)}"
                             )
                         else:
                             self._master.track_thread(next_thread)
                             next_thread.start()
                     else:
-                        logger.debug(f'ThreadPool ({self._name}) - empty result from queue')
+                        logger.debug(f"ThreadPool ({self._name}) - empty result from queue")
                 except IndexError:
                     return
             elif self._max_running == 0:  # can happen if user changed to 0, will run ALL pending threads NOW
