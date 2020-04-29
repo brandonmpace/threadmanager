@@ -23,20 +23,20 @@ from .convenience import get_caller
 from .log import create_logger
 
 
-_logger = create_logger(__name__)
+logger = create_logger(__name__)
 _enabled = False
 
 
 def disable_statistics():
     global _enabled
     _enabled = False
-    _logger.debug(f"disabled statistics. Caller: {get_caller()}")
+    logger.debug(f"disabled statistics. Caller: {get_caller()}")
 
 
 def enable_statistics():
     global _enabled
     _enabled = True
-    _logger.debug(f"enabled statistics. Caller: {get_caller()}")
+    logger.debug(f"enabled statistics. Caller: {get_caller()}")
 
 
 def statistics_enabled() -> bool:
