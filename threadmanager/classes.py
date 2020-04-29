@@ -716,7 +716,7 @@ class ThreadManager(object):
 
 
 class ThreadMonitor(threading.Thread):
-    """A thread that monitors other threads and gathers statistics when they are enabled"""
+    """A thread that monitors thread pools - only used by ThreadManager"""
     _count = 0
     _rlock = threading.RLock()
 
@@ -759,12 +759,16 @@ class ThreadPool(object):
         with self._rlock:
             if self._shutdown:
                 if cancelled:
+                    logger.debug(
+                        f"ThreadPool ({self._name}) - the calling thread was cancelled - NOT emptying pending queue"
+                    )
                     return
                 logger.info(f"ThreadPool ({self._name}) - not starting next thread as shutdown was requested")
                 self._empty_pending_queue()
                 return
             elif self._master.master.no_go and self._master.obey_stop:
                 if cancelled:
+                    logger.debug(f"ThreadPool ({self._name}) - the calling thread was cancelled")
                     return
                 logger.info(
                     f"ThreadPool ({self._name}) - not starting next thread as stop was requested and obey_stop is True"
