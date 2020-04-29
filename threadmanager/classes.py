@@ -31,6 +31,7 @@ from .convenience import get_caller, get_func_name, pluralize, thread_func_tag, 
 from .constants import *
 from .exceptions import *
 from .log import create_logger
+from . import statistics
 
 
 logger = create_logger(__name__)
@@ -872,6 +873,14 @@ class ThreadPoolController(object):
         """Allow this pool to affect ThreadManger's state (e.g. idle attribute)"""
         self._pool.state_updates_enabled = True
 
+    def disable_tag_in_stats(self):
+        """Prevent this pool from using thread tag in statistics"""
+        self._pool.use_tag_in_stats = False
+
+    def enable_tag_in_stats(self):
+        """Allow this pool to use thread tag in statistics"""
+        self._pool.use_tag_in_stats = True
+
     def ignore_stop(self):
         """Allow submission to this pool after stop was requested of ThreadManager"""
         self._pool.obey_stop = False
@@ -909,6 +918,7 @@ class ThreadPoolWrapper(object):
         if runtime_alert < 0:
             raise ValueError(f"runtime_alert must be greater than or equal to 0, got {runtime_alert}")
 
+        self.use_tag_in_stats = True
         self._active_threads: Set[TimedThread, TimedFuture] = set()
         self._idle_event = idle_event
         self._name = name
@@ -956,13 +966,16 @@ class ThreadPoolWrapper(object):
 
     def discard_thread(self, thread_item: [TimedFuture, TimedThread]):
         """Internal method used in tracking active threads"""
-        logger.debug(
-            f"ThreadPoolWrapper ({self._name}) - thread completed - name: {thread_nametag(thread_item)}"
-        )
+        thread_name = thread_nametag(thread_item)
+        logger.debug(f"ThreadPoolWrapper ({self._name}) - thread completed - name: {thread_name}")
         with self._rlock:
             if thread_item not in self._active_threads:
                 return
             self._active_threads.discard(thread_item)
+            if self.use_tag_in_stats:
+                statistics.record_statistics(self._name, thread_name, thread_item.total_runtime())
+            else:
+                statistics.record_statistics(self._name, thread_item.name, thread_item.total_runtime())
             if self.idle():
                 self._wake_thread_monitor()
 
