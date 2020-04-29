@@ -53,10 +53,16 @@ class Callback(object):
         self._removal_cb(self)
 
     def run(self):
+        start_time = time.perf_counter()
         try:
             self._func(*self._args, **self._kwargs)
         except Exception:
             _logger.exception(f"Exception in {self._type} callback! func: {get_func_name(self._func)}")
+        total_time = time.perf_counter() - start_time
+        if total_time >= CALLBACK_EXCESSIVE_BLOCK_TIME:
+            _logger.warning(
+                f"callback for {get_func_name(self._func)} took longer than {CALLBACK_EXCESSIVE_BLOCK_TIME} seconds"
+            )
 
     @property
     def type(self):
@@ -441,10 +447,6 @@ class ThreadManager(object):
                         _logger.info(msg)
                         return
                     else:
-                        # TODO: Decide if I want to just raise an exception instead. Using a warning allows for simple
-                        #  handling with warning control (see warnings module docs) and allows for cleaner code in the
-                        #  calling function. I used a warning because there may be cases where someone wants to track
-                        #  down an issue by setting safe to False, but wouldn't want this case to halt their program..
                         warnings.warn(msg, StopNotificationWarning)
                         return
                 else:
@@ -628,6 +630,7 @@ class ThreadManager(object):
     def _run_callback_thread(self, callback_type: str) -> TimedThread:
         self._validate_callback_type(callback_type)
 
+        _logger.debug(f"starting thread to run {callback_type} callbacks")
         thread_obj = TimedThread(target=self._run_callbacks, name=f"callbacks-{callback_type}", args=(callback_type,))
         thread_obj.start()
 
@@ -635,14 +638,12 @@ class ThreadManager(object):
 
     def _run_callbacks(self, callback_type: str):
         with self._callback_lock:
+            _logger.debug(f"about to run {callback_type} callbacks")
+
             for callback_item in self._callbacks[callback_type]:
-                # TODO: need a way to identify/log callbacks that block excessively.
-                #  Maybe a dedicated thread for ThreadMonitor to .wait() on with a timeout..
-                # TODO: Maybe signal a special thread to run the callbacks to avoid blocking here..
-                #  It could have different Event items for each type (where it does not block on any of them) and an
-                #  outer Event that it will have a blocking wait on that will be set by this function after setting
-                #  the Event for the relevant type
                 callback_item.run()
+
+            _logger.debug(f"finished running {callback_type} callbacks")
 
     def _run_thread_launcher(self):
         with self._rlock:
@@ -676,7 +677,6 @@ class ThreadManager(object):
             else:
                 self._running = value
 
-            # TODO: I'm not sure I like this running under rlock. Determine if it's really an issue.
             if value:
                 self._run_callback_thread(START)
             else:
@@ -807,8 +807,9 @@ class ThreadPool(object):
         return new_thread
 
     def shutdown(self, wait: bool = True):
-        # TODO: empty the queue and join all the currently running threads.
+        # TODO: maybe join all the currently running threads.
         self._shutdown = True
+        self._empty_pending_queue()
 
     @property
     def worker_count(self):
