@@ -45,6 +45,9 @@ class Callback(object):
         self._type = callback_type
         _logger.debug(f"adding {self._type} callback for {get_func_name(self._func)}")
 
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__, self._type, self._func)
+
     def remove(self):
         _logger.debug(f"removing {self._type} callback for {get_func_name(self._func)}")
         self._removal_cb(self)
@@ -403,6 +406,9 @@ class ThreadManager(object):
         self._run_thread_launcher()
         self._run_thread_monitor()
 
+    def __repr__(self):
+        return "%s(%r, %r, %r)" % (self.__class__.__name__, self._name, self._safe, self._thread_launcher_timeout)
+
     def add(self, pool_name: str, func: Callable, args: Iterable = (), kwargs: Optional[Mapping[str, Any]] = None, get_ref: bool = False, timeout: Optional[float] = None, tag: str = ""):
         """
         Submit the callable to the requested pool
@@ -489,8 +495,6 @@ class ThreadManager(object):
         else:
             raise ValueError(f"ThreadManager instance does not exist with name: {name}")
 
-    # TODO: I removed the lock usage from go and no_go because it can keep threads from exiting when shutdown is called.
-    #  If lock is found to be necessary, make a second lock either for these or for the shutdown to avoid that issue.
     @property
     def go(self) -> bool:
         """Can be used in functions running in threads to determine if they should keep going"""
@@ -727,6 +731,9 @@ class ThreadPool(object):
         self._safe = safe
         self._shutdown = False
 
+    def __repr__(self):
+        return "%s(%r, %r, %r)" % (self.__class__.__name__, self._name, self._max_running, self._runtime_alert)
+
     def cancel_pending_threads(self):
         """Cancel all threads that are waiting to run"""
         with self._rlock:
@@ -834,6 +841,9 @@ class ThreadPoolController(object):
     def __init__(self, pool: 'ThreadPoolWrapper'):
         self._pool = pool
 
+    def __repr__(self):
+        return "%s(%r)" % (self.__class__.__name__, self._pool)
+
     def disable_state_updates(self):
         """Prevent this pool from affecting ThreadManger's state (e.g. idle attribute)"""
         self._pool.state_updates_enabled = False
@@ -903,6 +913,9 @@ class ThreadPoolWrapper(object):
             raise NotImplementedError(f"It seems that pool type of {pool_type} is not yet implemented")
         else:
             raise ValueError(f"Unrecognized pool type: {pool_type}")
+
+    def __repr__(self):
+        return "%s(%r, %r)" % (self.__class__.__name__, self._name, self._type)
 
     def active_count(self) -> int:
         """Number of threads that are running"""
@@ -1033,6 +1046,9 @@ class ThreadRequest(object):
         self.get_ref = get_ref
         self.tag = tag
         self._thread = None
+
+    def __repr__(self):
+        return "%s(%r, %r, %r)" % (self.__class__.__name__, self.pool, self.func, self.tag)
 
     def get_thread(self, timeout: float = None):
         if self.get_ref is False:
