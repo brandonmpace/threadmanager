@@ -21,6 +21,7 @@
 
 import logging
 import threading
+import warnings
 
 
 from .convenience import get_caller
@@ -30,7 +31,8 @@ _logger = None
 _loggers = set()
 _rlock = threading.RLock()
 _stream_handler_name = "threadmanager_stream"
-
+# TODO: 0.0.5 - remove log.py
+msg = "set_log_level and log_to_console will be removed in 0.0.5 - please use logcontrol instead"
 
 if not _logger:
     _logger = logging.getLogger(__name__)
@@ -50,6 +52,9 @@ def log_to_console():
     Allows clients to enable printing log items to the console for only the loggers in this package.
     Another option is to enable this for root logger. e.g. logging.getLogger().addHandler(logging.StreamHandler())
     """
+    warnings.warn(msg, FutureWarning)
+    _logger.critical(msg)
+
     log_format = "[%(process)d] [%(thread)d] %(asctime)s (%(threadName)s) - [%(levelname)s] %(message)s"
     formatter = logging.Formatter(fmt=log_format)
     handler = logging.StreamHandler()
@@ -68,6 +73,9 @@ def log_to_console():
 
 def set_log_level(level: int):
     """Allows clients to set log level for all of the loggers used in the package"""
+    warnings.warn(msg, FutureWarning)
+    _logger.critical(msg)
+
     with _rlock:
         for logger in _loggers:
             logger.setLevel(level)
