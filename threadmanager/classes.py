@@ -418,10 +418,10 @@ class ThreadManager(object):
         self._stop_requested = False
         # Queue for sending items to the ThreadLauncher instance
         self._submission_queue = queue.Queue()
-        self._thread_launcher: ThreadLauncher = None
+        self._thread_launcher: Optional[ThreadLauncher] = None
         self._thread_launcher_runs: int = 0
         self._thread_launcher_timeout = thread_launcher_timeout
-        self._thread_monitor: ThreadMonitor = None
+        self._thread_monitor: Optional[ThreadMonitor] = None
         self._run_thread_launcher()
         self._run_thread_monitor()
 
