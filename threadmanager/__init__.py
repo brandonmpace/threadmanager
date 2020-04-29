@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: UTF-8 -*-
-# Copyright (C) 2019 Brandon M. Pace
+# Copyright (C) 2019, 2020 Brandon M. Pace
 #
 # This file is part of threadmanager
 #
@@ -25,7 +25,7 @@ It was originally created to encapsulate such functionality for use with GUIs to
 
 
 __author__ = "Brandon M. Pace"
-__copyright__ = "Copyright 2019, Brandon M. Pace"
+__copyright__ = "Copyright 2019, 2020 Brandon M. Pace"
 __license__ = "GNU LGPL 3+"
 __maintainer__ = "Brandon M. Pace"
 __status__ = "Development"  # Used in production, but still have planned features pending
