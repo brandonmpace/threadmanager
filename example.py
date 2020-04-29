@@ -22,22 +22,16 @@
 """This is an extremely basic example"""
 
 
+import logcontrol
 import logging
 import threadmanager
 import time
 
 
-from logging.handlers import RotatingFileHandler
-
-
 logfile = "example.log"
 logger = logging.getLogger()
-log_format = "[%(process)d] [%(thread)d] %(asctime)s (%(threadName)s) - [%(levelname)s] %(message)s"
-formatter = logging.Formatter(fmt=log_format)
-handler = RotatingFileHandler(logfile, maxBytes=20480, backupCount=9)
-handler.setFormatter(formatter)
-logger.addHandler(handler)
-logger.setLevel(logging.DEBUG)
+logcontrol.set_log_file(logfile, max_size=64000)
+logcontrol.set_level(logging.DEBUG)
 
 
 def continuous_func(work_time: float):
@@ -107,8 +101,8 @@ def print_after(period: float):
 
 def main():
     global tm
-    # threadmanager.log_to_console()
-    threadmanager.set_log_level(logging.DEBUG)
+    # logcontrol.log_to_console()
+    threadmanager.enable_statistics()
 
     tm = threadmanager.ThreadManager("example")
 
@@ -119,7 +113,8 @@ def main():
     test_pool_name = "testpool"
 
     test_pool_controller = tm.add_pool(test_pool_name, threadmanager.THREAD, runtime_alert=1)
-    # tm.add_pool(test_pool_name, threadmanager.FUTURE)
+    # test_pool_controller = tm.add_pool(test_pool_name, threadmanager.FUTURE)
+    # test_pool_controller.disable_tag_in_stats()
 
     log_time("adding threads")
 
