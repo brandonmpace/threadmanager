@@ -130,6 +130,8 @@ def main():
     tm.stop()
 
     log_time(f"continuous_func result is: {second_item.result()} and it ran for {second_item.total_runtime()} seconds")
+    # print(threadmanager.collect_pool_stats_table(specific_names=("testpool", )))
+    # print(threadmanager.collect_thread_stats_table(specific_names=("testpool-continuous_func", )))
     # print(threadmanager.collect_stats_tables())
     # threadmanager.log_stats_tables()
 

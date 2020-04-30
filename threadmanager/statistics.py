@@ -24,7 +24,7 @@ import prettytable
 import statistics
 import threading
 
-from typing import DefaultDict, Deque, Dict, List, Optional
+from typing import DefaultDict, Deque, Dict, List, Optional, Tuple
 from .convenience import get_caller
 from .log import create_logger
 
@@ -74,32 +74,32 @@ class StatSummary:
             return f"{self.name}: [no data]"
 
 
-def collect_pool_stats() -> List[StatSummary]:
+def collect_pool_stats(specific_names: Tuple[str] = ()) -> List[StatSummary]:
     """Get StatSummary items representing the pool stats"""
     with _config_lock:
-        return _collect_stats(_pool_stats)
+        return _collect_stats(_pool_stats, specific_names=specific_names)
 
 
-def collect_pool_stats_table(prefix: str = "\nPOOL STATS:\n") -> str:
+def collect_pool_stats_table(prefix: str = "\nPOOL STATS:\n", specific_names: Tuple[str] = ()) -> str:
     """Get string form of a PrettyTable of pool stats"""
     with _config_lock:
-        stats = collect_pool_stats()
+        stats = collect_pool_stats(specific_names=specific_names)
         if stats:
             return f"{prefix}{generate_table_string(stats)}"
         else:
             return f"{prefix}[no pool stats available]"
 
 
-def collect_thread_stats() -> List[StatSummary]:
+def collect_thread_stats(specific_names: Tuple[str] = ()) -> List[StatSummary]:
     """Get StatSummary items representing the thread stats"""
     with _config_lock:
-        return _collect_stats(_thread_stats)
+        return _collect_stats(_thread_stats, specific_names=specific_names)
 
 
-def collect_thread_stats_table(prefix: str = "\nTHREAD STATS:\n") -> str:
+def collect_thread_stats_table(prefix: str = "\nTHREAD STATS:\n", specific_names: Tuple[str] = ()) -> str:
     """Get string form of a PrettyTable of thread stats"""
     with _config_lock:
-        stats = collect_thread_stats()
+        stats = collect_thread_stats(specific_names=specific_names)
         if stats:
             return f"{prefix}{generate_table_string(stats)}"
         else:
@@ -247,11 +247,18 @@ def _clear_statistics():
             _pool_stats = None
 
 
-def _collect_stats(data_dict: Dict[str, Deque[float]]) -> List[StatSummary]:
+def _collect_stats(data_dict: Dict[str, Deque[float]], specific_names: Tuple[str] = ()) -> List[StatSummary]:
     """Internal function to convert data sets into StatSummary items"""
     collected_data = []
-    for name, data in data_dict.items():
-        collected_data.append(StatSummary(name, data))
+    if specific_names:
+        for specific_name in specific_names:
+            if specific_name in data_dict:
+                collected_data.append(StatSummary(specific_name, data_dict[specific_name]))
+            else:
+                logger.error(f"provided name does not exist in dataset: '{specific_name}'")
+    else:
+        for name, data in data_dict.items():
+            collected_data.append(StatSummary(name, data))
     return collected_data
 
 
