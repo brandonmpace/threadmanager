@@ -872,6 +872,12 @@ class ThreadPoolController(object):
         """Allow this pool to affect ThreadManger's state (e.g. idle attribute)"""
         self._pool.state_updates_enabled = True
 
+    def disable_statistics(self):
+        self._pool.statistics_enabled = False
+
+    def enable_statistics(self):
+        self._pool.statistics_enabled = True
+
     def disable_tag_in_stats(self):
         """Prevent this pool from using thread tag in statistics"""
         self._pool.use_tag_in_stats = False
@@ -893,8 +899,28 @@ class ThreadPoolController(object):
         self._pool.set_worker_count(value)
 
     @property
+    def statistics_enabled(self) -> bool:
+        return self._pool.statistics_enabled
+
+    @statistics_enabled.setter
+    def statistics_enabled(self, value: bool):
+        self._pool.statistics_enabled = value
+
+    @property
+    def use_tag_in_stats(self) -> bool:
+        return self._pool.use_tag_in_stats
+
+    @use_tag_in_stats.setter
+    def use_tag_in_stats(self, value: bool):
+        self._pool.use_tag_in_stats = value
+
+    @property
     def worker_count(self) -> int:
         return self._pool.worker_count
+
+    @worker_count.setter
+    def worker_count(self, value: int):
+        self._pool.set_worker_count(value)
 
 
 class ThreadPoolWrapper(object):
@@ -934,6 +960,9 @@ class ThreadPoolWrapper(object):
         # Whether or not ThreadManager will update its state when submitting to this pool
         self._state_updates_enabled = True
 
+        # Whether or not statistics reporting will be performed for this pool (only when global statistics are enabled)
+        self._statistics_enabled = True
+
         if pool_type == FUTURE:
             self._pool = TimedFutureThreadPool(self, runtime_alert=runtime_alert, max_workers=worker_count, thread_name_prefix=name)
         elif pool_type == THREAD:
@@ -971,10 +1000,11 @@ class ThreadPoolWrapper(object):
             if thread_item not in self._active_threads:
                 return
             self._active_threads.discard(thread_item)
-            if self.use_tag_in_stats:
-                statistics.record_statistics(self._name, thread_name, thread_item.total_runtime())
-            else:
-                statistics.record_statistics(self._name, thread_item.name, thread_item.total_runtime())
+            if self._statistics_enabled:
+                if self.use_tag_in_stats:
+                    statistics.record_statistics(self._name, thread_name, thread_item.total_runtime())
+                else:
+                    statistics.record_statistics(self._name, thread_item.name, thread_item.total_runtime())
             if self.idle():
                 self._wake_thread_monitor()
 
@@ -1038,6 +1068,15 @@ class ThreadPoolWrapper(object):
     def state_updates_enabled(self, value: bool):
         self._state_updates_enabled = value
         logger.debug(f"Pool {self._name} configured to {'' if value else 'not '}affect ThreadManager state")
+
+    @property
+    def statistics_enabled(self):
+        return self._statistics_enabled
+
+    @statistics_enabled.setter
+    def statistics_enabled(self, value: bool):
+        self._statistics_enabled = value
+        logger.debug(f"Pool {self._name} configured to {'' if value else 'not '}report statistics")
 
     def submit(self, tag: str, func: Callable, *args, **kwargs) -> Optional[Union[TimedThread, TimedFuture]]:
         """Add a function to be ran in a thread by the pool"""
