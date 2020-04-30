@@ -13,6 +13,7 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     keywords="thread state manager",
     license="GNU Lesser General Public License v3 or later",
+    install_requires=["prettytable>=0.7.2"],
     platforms=['any'],
     python_requires=">=3.6.5",
     url="https://github.com/brandonmpace/threadmanager",

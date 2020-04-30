@@ -19,46 +19,196 @@
 
 
 import collections
+import logging
+import prettytable
+import statistics
 import threading
 
-from typing import DefaultDict, Deque, Optional
+from typing import DefaultDict, Deque, Dict, List, Optional
 from .convenience import get_caller
 from .log import create_logger
 
 
 logger = create_logger(__name__)
+
 _config_lock = threading.RLock()
+
+# Whether or not statistics are generally enabled
 _enabled = False
-_recorded_stats: Optional[DefaultDict[str, Deque[float]]] = None
+# Whether or not collection of statistics is actually allowed (enabled but not running == paused)
 _running = False
+
+_pool_stats: Optional[DefaultDict[str, Deque[float]]] = None
+_thread_stats: Optional[DefaultDict[str, Deque[float]]] = None
+
 _stat_history_size = 1000
 
 
-def disable_statistics():
-    global _enabled, _recorded_stats, _running
+class StatSummary:
+    min: Optional[float]
+    max: Optional[float]
+    mean: Optional[float]
+
+    def __init__(self, name: str, data: Deque[float]):
+        self.name = name
+        if data:
+            self.valid = True
+            self.min = min(data)
+            self.max = max(data)
+            self.mean = statistics.mean(data)
+        else:
+            self.valid = False
+            self.min = None
+            self.max = None
+            self.mean = None
+
+    @property
+    def average(self) -> Optional[float]:
+        return self.mean
+
+    def report_line(self) -> str:
+        """A quick single-line format for logging or debugging"""
+        if self.valid:
+            return f"{self.name}: min({self.min}), max({self.max}), average({self.mean})"
+        else:
+            return f"{self.name}: [no data]"
+
+
+def collect_pool_stats() -> List[StatSummary]:
+    """Get StatSummary items representing the pool stats"""
     with _config_lock:
-        _running = False
-        _enabled = False
-        if _recorded_stats:
-            _recorded_stats.clear()
-            _recorded_stats = None
-        logger.debug(f"disabled statistics. Caller: {get_caller()}")
+        return _collect_stats(_pool_stats)
+
+
+def collect_pool_stats_table(prefix: str = "\nPOOL STATS:\n") -> str:
+    """Get string form of a PrettyTable of pool stats"""
+    with _config_lock:
+        stats = collect_pool_stats()
+        if stats:
+            return f"{prefix}{generate_table_string(stats)}"
+        else:
+            return f"{prefix}[no pool stats available]"
+
+
+def collect_thread_stats() -> List[StatSummary]:
+    """Get StatSummary items representing the thread stats"""
+    with _config_lock:
+        return _collect_stats(_thread_stats)
+
+
+def collect_thread_stats_table(prefix: str = "\nTHREAD STATS:\n") -> str:
+    """Get string form of a PrettyTable of thread stats"""
+    with _config_lock:
+        stats = collect_thread_stats()
+        if stats:
+            return f"{prefix}{generate_table_string(stats)}"
+        else:
+            return f"{prefix}[no thread stats available]"
+
+
+def collect_stats_tables() -> str:
+    """Get string form of a PrettyTable of all stats"""
+    with _config_lock:
+        pool_stats_table = collect_pool_stats_table()
+        thread_stats_table = collect_thread_stats_table()
+    return pool_stats_table + "\n" + thread_stats_table + "\n"
+
+
+def disable_statistics():
+    """Disable collection of statistics"""
+    global _enabled, _running, _pool_stats, _thread_stats
+    with _config_lock:
+        if _enabled:
+            _running = False
+            _enabled = False
+            logger.debug(f"disabled statistics. Caller: {get_caller()}")
+        else:
+            logger.error(f"called while statistics are already disabled! Caller: {get_caller()}")
 
 
 def enable_statistics():
-    global _enabled, _recorded_stats, _running
+    """Enable statistics and initialize the associated storage items"""
+    global _enabled, _running, _pool_stats, _thread_stats
     with _config_lock:
-        _recorded_stats = collections.defaultdict(_new_stats_deque)
-        _enabled = True
+        if _enabled:
+            logger.error(f"called while statistics are already enabled! Caller: {get_caller()}")
+
+        _pool_stats = collections.defaultdict(_new_stats_deque)
+        _thread_stats = collections.defaultdict(_new_stats_deque)
         logger.debug(f"enabled statistics. Caller: {get_caller()}")
+        _enabled = True
         _running = True
 
 
+def generate_table_string(stats: List[StatSummary]) -> str:
+    """Generate string result of PrettyTable representing the stats provided"""
+    table = prettytable.PrettyTable(field_names=("name", "min", "max", "average"))
+    for item in stats:
+        table.add_row((item.name, item.min, item.max, item.mean))
+    return table.get_string()
+
+
+def log_pool_stats_table(level: int = logging.INFO):
+    """Generate pool statistics tables and send to python logger"""
+    tables_string = collect_pool_stats_table()
+    logger.log(level, tables_string)
+
+
+def log_thread_stats_table(level: int = logging.INFO):
+    """Generate thread statistics table and send to python logger"""
+    tables_string = collect_thread_stats_table()
+    logger.log(level, tables_string)
+
+
+def log_stats_tables(level: int = logging.INFO):
+    """Generate statistics tables and send to python logger"""
+    tables_string = collect_stats_tables()
+    logger.log(level, tables_string)
+
+
+def pause_statistics():
+    """Leave statistics enabled and preserve collected data, but stop collection of new data"""
+    global _enabled, _running
+    with _config_lock:
+        if statistics_paused():
+            logger.error(f"called while statistics are already paused! Caller: {get_caller()}")
+        elif _enabled and _running:
+            _running = False
+            logger.debug(f"paused statistics. Caller: {get_caller()}")
+        elif _running:
+            raise RuntimeError(f"bad state! Statistics are disabled but supposedly running! Caller: {get_caller()}")
+        else:
+            raise RuntimeError(f"called while statistics are disabled! Caller: {get_caller()}")
+
+
 def record_statistics(pool_name: str, thread_name: str, runtime: float):
-    # TODO: determine if lock is needed here
-    if _running:
-        _recorded_stats[pool_name].append(runtime)
-        _recorded_stats[thread_name].append(runtime)
+    """Internal function used to record statistics"""
+    with _config_lock:
+        if _running:
+            _pool_stats[pool_name].append(runtime)
+            _thread_stats[thread_name].append(runtime)
+
+
+def reset_statistics():
+    """Public function for resetting statistics"""
+    with _config_lock:
+        if _enabled:
+            disable_statistics()
+            _clear_statistics()
+            enable_statistics()
+        else:
+            _clear_statistics()
+        logger.debug(f"reset statistics. Caller: {get_caller()}")
+
+
+def resume_statistics():
+    """Continue collection of statistics. To be used after calling pause_statistics()"""
+    global _running
+    with _config_lock:
+        if statistics_paused():
+            _running = True
+        else:
+            raise RuntimeError(f"called while statistics were not in paused state! Caller: {get_caller()}")
 
 
 def set_history_size(size: int):
@@ -67,6 +217,7 @@ def set_history_size(size: int):
     with _config_lock:
         disable_statistics()
         _stat_history_size = size
+        _clear_statistics()
         enable_statistics()
         logger.debug(f"statistics history size changed to {size} by caller: {get_caller()}")
 
@@ -76,5 +227,34 @@ def statistics_enabled() -> bool:
     return _enabled
 
 
+def statistics_paused() -> bool:
+    """Whether or not statistics are in a paused state"""
+    with _config_lock:
+        return _enabled and (not _running)
+
+
+def _clear_statistics():
+    """Internal function to release existing statistics data"""
+    global _enabled, _running, _pool_stats, _thread_stats
+    with _config_lock:
+        if _enabled or _running:
+            raise RuntimeError(f"called while statistics were enabled! Caller: {get_caller()}")
+        if _pool_stats:
+            _pool_stats.clear()
+            _pool_stats = None
+        if _thread_stats:
+            _thread_stats.clear()
+            _pool_stats = None
+
+
+def _collect_stats(data_dict: Dict[str, Deque[float]]) -> List[StatSummary]:
+    """Internal function to convert data sets into StatSummary items"""
+    collected_data = []
+    for name, data in data_dict.items():
+        collected_data.append(StatSummary(name, data))
+    return collected_data
+
+
 def _new_stats_deque() -> Deque:
+    """Internal function to generate a properly-sized deque"""
     return collections.deque(maxlen=_stat_history_size)

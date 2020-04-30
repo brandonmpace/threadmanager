@@ -115,7 +115,7 @@ def main():
     test_pool_controller = tm.add_pool(test_pool_name, threadmanager.THREAD, runtime_alert=1)
     # test_pool_controller = tm.add_pool(test_pool_name, threadmanager.FUTURE)
     # test_pool_controller.disable_tag_in_stats()
-
+    # print(threadmanager.statistics.collect_stats_tables())
     log_time("adding threads")
 
     tm.add(test_pool_name, long_running_func, args=("first function", 1000), kwargs={"chunk_size": 20})
@@ -130,6 +130,8 @@ def main():
     tm.stop()
 
     log_time(f"continuous_func result is: {second_item.result()} and it ran for {second_item.total_runtime()} seconds")
+    # print(threadmanager.collect_stats_tables())
+    # threadmanager.log_stats_tables()
 
     tm.shutdown()
 

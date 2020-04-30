@@ -1016,7 +1016,7 @@ class ThreadPoolWrapper(object):
                         current_runtime = thread_item.current_runtime()
                         if current_runtime > self._runtime_alert:
                             logger.warning(
-                                f"ThreadPoolWrapper ({self._name}) - thread {thread_nametag(thread_item)} running longer than alert time of {self._runtime_alert}. Runtime: {current_runtime}"
+                                f"ThreadPoolWrapper ({self._name}) - thread {thread_nametag(thread_item)} has been running longer than alert time of {self._runtime_alert}. Runtime: {current_runtime}"
                             )
                             alert = True
                 return alert

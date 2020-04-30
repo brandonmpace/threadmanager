@@ -33,13 +33,15 @@ __version__ = "0.0.3"
 
 import logging
 
-
 from .log import log_to_console, set_log_level
 from .classes import ThreadManager
 from .constants import FUTURE, THREAD
 from .convenience import get_caller, get_func_name
 from .exceptions import *
-from .statistics import disable_statistics, enable_statistics, statistics_enabled
-
+from .statistics import disable_statistics, enable_statistics, pause_statistics, reset_statistics, resume_statistics
+from .statistics import set_history_size, statistics_enabled, statistics_paused
+from .statistics import collect_pool_stats, collect_thread_stats
+from .statistics import collect_stats_tables, collect_pool_stats_table, collect_thread_stats_table
+from .statistics import log_stats_tables, log_pool_stats_table, log_thread_stats_table
 
 logger = logging.getLogger(__name__)
