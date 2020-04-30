@@ -19,7 +19,8 @@
 
 """
 The threadmanager package provides a way to manage and organize threads as well as keep track of state.
-It was originally created to encapsulate such functionality for use with GUIs to avoid blocking their main loop.
+It was originally created to encapsulate such functionality for use with GUIs to avoid blocking their main loop,
+but is also great for other applications.
 """
 
 
@@ -27,8 +28,8 @@ __author__ = "Brandon M. Pace"
 __copyright__ = "Copyright 2019, 2020 Brandon M. Pace"
 __license__ = "GNU LGPL 3+"
 __maintainer__ = "Brandon M. Pace"
-__status__ = "Development"  # Used in production, but still have planned features pending
-__version__ = "0.0.3"
+__status__ = "Production"
+__version__ = "0.0.4"
 
 
 import logging
