@@ -397,7 +397,14 @@ class ThreadManager(object):
     _supported_callback_types = (IDLE, START, STOP)
 
     """A class for managing, organizing and tracking threads"""
-    def __init__(self, name: str, safe=True, thread_launcher_timeout: float = 30):
+    def __init__(self, name: str, safe=True, thread_launcher_timeout: float = 30.0, monitor_interval: float = 10.0):
+        """
+        Initialize a ThreadManager instance
+        :param name: str name that can be used to retrieve the instance from other parts of the program
+        :param safe: bool used for debugging issues within threadmanager
+        :param thread_launcher_timeout: float number of seconds to keep a ThreadLauncher alive with no new requests
+        :param monitor_interval: float number of seconds to wait between forced check of running thread count and more.
+        """
         self._callbacks: Dict[str, Set[Callback]] = {cb_type: set() for cb_type in self._supported_callback_types}
 
         # thread locking items
@@ -407,21 +414,28 @@ class ThreadManager(object):
         self._pool_idle_event = threading.Event()
         self._pool_lock = threading.RLock()
 
-        if name in self._instances:
-            raise ValueError(f"ThreadManager already exists with name: {name}")
-        self._instances[name] = self
+        if monitor_interval < MIN_POOL_MONITOR_INTERVAL:
+            raise ValueError(f"monitor_interval must be at least {MIN_POOL_MONITOR_INTERVAL}")
+        self._monitor_interval = monitor_interval
         self._name = name
         self._pools: Dict[str, ThreadPoolWrapper] = {}
         self._safe = safe
         self._running = False
         self._shutdown = False
         self._stop_requested = False
+
         # Queue for sending items to the ThreadLauncher instance
         self._submission_queue = queue.Queue()
         self._thread_launcher: Optional[ThreadLauncher] = None
         self._thread_launcher_runs: int = 0
+        if thread_launcher_timeout < MIN_THREAD_LAUNCHER_TIMEOUT:
+            raise ValueError(f"thread_launcher_timeout must be at least {MIN_THREAD_LAUNCHER_TIMEOUT}")
         self._thread_launcher_timeout = thread_launcher_timeout
         self._thread_monitor: Optional[ThreadMonitor] = None
+
+        if name in self._instances:
+            raise ValueError(f"ThreadManager already exists with name: {name}")
+        self._instances[name] = self
         self._run_thread_launcher()
         self._run_thread_monitor()
 
@@ -631,7 +645,7 @@ class ThreadManager(object):
                         self._set_running(False)
 
             # Go back to waiting on an idle event:
-            if self._pool_idle_event.wait(1):
+            if self._pool_idle_event.wait(self._monitor_interval):
                 # Woken up by a state-affecting ThreadPoolWrapper becoming idle or by shutdown
                 if self._shutdown:
                     break

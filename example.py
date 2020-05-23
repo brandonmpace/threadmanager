@@ -104,7 +104,7 @@ def main():
     # logcontrol.log_to_console()
     threadmanager.enable_statistics()
 
-    tm = threadmanager.ThreadManager("example")
+    tm = threadmanager.ThreadManager("example", monitor_interval=1.0)
 
     tm.add_idle_callback(log_time, "went idle")
     tm.add_start_callback(log_time, "started")
