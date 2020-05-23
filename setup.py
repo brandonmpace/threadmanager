@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="threadmanager",
-    version="0.0.4",
+    version="0.0.5",
     author="Brandon M. Pace",
     author_email="brandonmpace@gmail.com",
     description="A thread manager for Python programs",
