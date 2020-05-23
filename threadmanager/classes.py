@@ -435,10 +435,10 @@ class ThreadManager(object):
         :param func: Callable
         :param args: Iterable (optional, typically a tuple) Single argument needs a trailing comma. e.g. (5,)
         :param kwargs: Mapping (optional, typically a dict)
-        :param get_ref: bool whether or not to return a reference to the Future
+        :param get_ref: bool whether or not to return a reference to the Thread/Future
         :param timeout: float time to wait on getting the thread reference
         :param tag: str alphanumeric (- and _ allowed) string to append to thread name for easier tracking
-        :return:
+        :return: Optional[Union[TimedThread, TimedFuture]]
         """
         with self._rlock:
             if self._shutdown:
