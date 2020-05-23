@@ -1,8 +1,6 @@
 # threadmanager
 A thread manager for Python programs
 
-##### Current state: Under development (beta - used in production, but new features are planned)
-
 
 It provides:  
   * Centralization of starting and monitoring threads  
