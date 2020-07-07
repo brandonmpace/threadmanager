@@ -867,7 +867,10 @@ class ThreadPool(object):
                 try:
                     next_thread = self._pending_queue.popleft()
                     while next_thread:
-                        next_thread.cancel()
+                        if next_thread.cancel():
+                            logger.debug(f"Cancelled {next_thread}")
+                        else:
+                            logger.info(f"Could not cancel {next_thread}")
                         next_thread = self._pending_queue.popleft()
                 except IndexError:
                     return
