@@ -263,6 +263,8 @@ class TimedThread(threading.Thread):
             if self.done():
                 if self._exception:
                     raise self._exception
+                elif self.cancelled():
+                    raise CancelledError(f"TimedThread ({thread_func_tag(self)}) was cancelled")
                 return self._result
             else:
                 self._condition.wait(timeout)
@@ -270,6 +272,8 @@ class TimedThread(threading.Thread):
                 if self.done():
                     if self._exception:
                         raise self._exception
+                    elif self.cancelled():
+                        raise CancelledError(f"TimedThread ({thread_func_tag(self)}) was cancelled")
                     return self._result
                 else:
                     raise WaitTimeout

@@ -31,6 +31,11 @@ class BadStateError(GeneralError):
     pass
 
 
+class CancelledError(GeneralError):
+    """The item being waited on was cancelled"""
+    pass
+
+
 class StopNotificationWarning(UserWarning):
     """A submission was made, but not accepted as the machine was stopping"""
     pass
