@@ -226,6 +226,7 @@ class TimedThread(threading.Thread):
                 return True
 
     def cancelled(self) -> bool:
+        """True when the thread was cancelled"""
         with self._condition:
             return self._state == CANCELLED
 
@@ -238,11 +239,17 @@ class TimedThread(threading.Thread):
         else:
             return time.time() - self._time_started
 
-    def done(self):
+    def done(self) -> bool:
+        """True when the thread was cancelled or completed"""
         with self._condition:
             return self._state in (CANCELLED, COMPLETED)
 
-    def exception(self, timeout: float = None):
+    def exception(self, timeout: float = None) -> Optional[Exception]:
+        """
+        Gets the exception (if any) that resulted from running the target function
+        :param timeout: float number of seconds to wait for thread completion
+        :raises: WaitTimeout if the thread is not completed by the timeout provided
+        """
         with self._condition:
             if self.done():
                 return self._exception
@@ -255,10 +262,17 @@ class TimedThread(threading.Thread):
                     raise WaitTimeout
 
     @property
-    def func_name(self):
+    def func_name(self) -> str:
+        """Name of the function the thread is supposed to run"""
         return self._func_name
 
     def result(self, timeout: float = None):
+        """
+        Get the result of the function run in the thread. If there was an exception, it is raised.
+        :param timeout: float number of seconds to wait for the result
+        :raises: CancelledError if the thread was cancelled
+        :raises: WaitTimeout if a timeout was provided and result was not ready on time
+        """
         with self._condition:
             if self.done():
                 if self._exception:
@@ -279,6 +293,7 @@ class TimedThread(threading.Thread):
                     raise WaitTimeout
 
     def run(self):
+        """Internal function called when the thread starts"""
         with self._condition:
             if self._state == INITIALIZED:
                 self._state = RUNNING
@@ -306,16 +321,19 @@ class TimedThread(threading.Thread):
                 self._state = COMPLETED
             self._notify_master()
 
-    def running(self):
+    def running(self) -> bool:
+        """Whether or not the thread is currently executing"""
         with self._condition:
             return self._state == RUNNING
 
     @property
-    def tag(self):
+    def tag(self) -> str:
+        """The tag that was passed to ThreadManager.add()"""
         return self._tag
 
     @property
-    def time_started(self):
+    def time_started(self) -> float:
+        """The time the thread was either started or cancelled"""
         with self._condition:
             return self._time_started
 
