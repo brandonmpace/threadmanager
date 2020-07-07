@@ -94,7 +94,7 @@ class TimedFuture(concurrent.futures.Future):
     def current_runtime(self) -> float:
         """Return the time since start. Returns total runtime if already finished running."""
         if self._state == concurrent.futures._base.PENDING:
-            raise RuntimeError("current_runtime called before TimedThread started")
+            raise RuntimeError("current_runtime called before TimedFuture started")
         elif self.done():
             return self.total_runtime()
         else:
@@ -150,11 +150,14 @@ class TimedFuture(concurrent.futures.Future):
     def _set_time_completed(self):
         with self._condition:
             self._time_completed = time.time()
-        # TODO: log runtime statistics for self._func_name if enabled
 
 
 class TimedFutureThreadPool(concurrent.futures.ThreadPoolExecutor):
     def __init__(self, master: 'ThreadPoolWrapper', *args, runtime_alert: float = 0.0, **kwargs):
+        import warnings
+        msg = "ThreadPoolExecutor will be removed in 1.0.0 - please use the default pool_type instead for add_pool()"
+        warnings.warn(msg, FutureWarning)
+        logger.critical(msg)
         super().__init__(*args, **kwargs)
         self._master = master
         self.runtime_alert = runtime_alert
