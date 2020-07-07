@@ -34,7 +34,6 @@ __version__ = "0.0.5"
 
 import logging
 
-from .log import log_to_console, set_log_level
 from .classes import ThreadManager
 from .constants import FUTURE, THREAD
 from .convenience import get_caller, get_func_name

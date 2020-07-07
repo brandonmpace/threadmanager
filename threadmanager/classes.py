@@ -19,6 +19,7 @@
 
 import collections
 import concurrent.futures
+import logging
 import queue
 import threading
 import time
@@ -29,11 +30,10 @@ from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set, Union
 from .convenience import get_caller, get_func_name, pluralize, thread_func_tag, thread_nametag
 from .constants import *
 from .exceptions import *
-from .log import create_logger
 from . import statistics
 
 
-logger = create_logger(__name__)
+logger = logging.getLogger(__name__)
 
 
 class Callback(object):

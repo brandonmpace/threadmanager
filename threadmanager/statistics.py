@@ -26,10 +26,9 @@ import threading
 
 from typing import DefaultDict, Deque, Dict, List, Optional, Tuple
 from .convenience import get_caller
-from .log import create_logger
 
 
-logger = create_logger(__name__)
+logger = logging.getLogger(__name__)
 
 _config_lock = threading.RLock()
 
