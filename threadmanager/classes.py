@@ -300,8 +300,6 @@ class TimedThread(threading.Thread):
             with self._condition:
                 self._time_completed = time.time()
                 self._state = COMPLETED
-                # Release all threads that are waiting on exception or result, etc.
-                self._condition.notify_all()
             self._notify_master()
 
     def running(self):
@@ -340,6 +338,9 @@ class TimedThread(threading.Thread):
         Notify the master ThreadPoolWrapper that we've either completed or have been cancelled.
         This should only be called from .run() as it means the thread was actually started.
         """
+        with self._condition:
+            # Release all threads that are waiting on exception or result, etc.
+            self._condition.notify_all()
         if self._master:
             self._master.discard_thread(self)
             self._pool.queue_check(cancelled=cancelled)
