@@ -47,8 +47,10 @@ class StatSummary:
     min: Optional[float]
     max: Optional[float]
     mean: Optional[float]
+    name: str
+    valid: bool
 
-    def __init__(self, name: str, data: Deque[float]):
+    def __init__(self, name: str, data: Deque[float] = None):
         self.name = name
         if data:
             self.valid = True
@@ -211,7 +213,10 @@ def resume_statistics():
 
 
 def set_history_size(size: int):
-    """Set the number of items kept per unique record"""
+    """Set the number of items kept per unique record.
+
+    Note that this will impact memory usage and that existing statistics will be cleared.
+    """
     global _stat_history_size
     with _config_lock:
         disable_statistics()
@@ -222,12 +227,12 @@ def set_history_size(size: int):
 
 
 def statistics_enabled() -> bool:
-    """Check to see if statistics are enabled for threadmanager"""
+    """True if statistics are enabled for threadmanager"""
     return _enabled
 
 
 def statistics_paused() -> bool:
-    """Whether or not statistics are in a paused state"""
+    """True if statistics are in a paused state"""
     with _config_lock:
         return _enabled and (not _running)
 
@@ -255,6 +260,7 @@ def _collect_stats(data_dict: Dict[str, Deque[float]], specific_names: Tuple[str
                 collected_data.append(StatSummary(specific_name, data_dict[specific_name]))
             else:
                 logger.error(f"provided name does not exist in dataset: '{specific_name}'")
+                collected_data.append(StatSummary(specific_name))
     else:
         for name, data in data_dict.items():
             collected_data.append(StatSummary(name, data))
