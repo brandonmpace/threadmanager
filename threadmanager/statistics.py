@@ -78,6 +78,8 @@ class StatSummary:
 def collect_pool_stats(specific_names: Tuple[str] = ()) -> List[StatSummary]:
     """Get StatSummary items representing the pool stats"""
     with _config_lock:
+        if _pool_stats is None:
+            return []
         return _collect_stats(_pool_stats, specific_names=specific_names)
 
 
@@ -94,6 +96,8 @@ def collect_pool_stats_table(prefix: str = "\nPOOL STATS:\n", specific_names: Tu
 def collect_thread_stats(specific_names: Tuple[str] = ()) -> List[StatSummary]:
     """Get StatSummary items representing the thread stats"""
     with _config_lock:
+        if _thread_stats is None:
+            return []
         return _collect_stats(_thread_stats, specific_names=specific_names)
 
 
