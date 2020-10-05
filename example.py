@@ -112,7 +112,7 @@ def main():
 
     test_pool_name = "testpool"
 
-    test_pool_controller = tm.add_pool(test_pool_name, threadmanager.THREAD, runtime_alert=1)
+    test_pool_controller = tm.add_pool(test_pool_name, runtime_alert=1)
     # test_pool_controller = tm.add_pool(test_pool_name, threadmanager.FUTURE)
     # test_pool_controller.disable_tag_in_stats()
     # print(threadmanager.statistics.collect_stats_tables())

@@ -18,14 +18,13 @@
 # If not, see <https://www.gnu.org/licenses/>.
 
 import collections
-import concurrent.futures
 import logging
 import queue
 import threading
 import time
 import warnings
 
-from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set, Union
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Set
 
 from .convenience import get_caller, get_func_name, pluralize, thread_func_tag, thread_nametag
 from .constants import *
@@ -82,115 +81,10 @@ class Callback(object):
         return self._type
 
 
-class TimedFuture(concurrent.futures.Future):
-    def __init__(self, func_name: str, runtime_alert: float, tag: str = ""):
-        super().__init__()
-        self._func_name = func_name
-        self._runtime_alert = runtime_alert
-        self._tag = tag
-        self._time_started: float = 0.0
-        self._time_completed: float = 0.0
-
-    def current_runtime(self) -> float:
-        """Return the time since start. Returns total runtime if already finished running."""
-        if self._state == concurrent.futures._base.PENDING:
-            raise RuntimeError("current_runtime called before TimedFuture started")
-        elif self.done():
-            return self.total_runtime()
-        else:
-            return time.time() - self._time_started
-
-    @property
-    def func_name(self):
-        return self._func_name
-    name = func_name
-
-    def set_exception(self, exception):
-        with self._condition:
-            self._set_time_completed()
-            logger.exception(f"TimedFuture ({thread_func_tag(self)}) ended with an exception!")
-            super().set_exception(exception)
-
-    def set_result(self, result):
-        with self._condition:
-            self._set_time_completed()
-            super().set_result(result)
-
-    def set_running_or_notify_cancel(self) -> bool:
-        with self._condition:
-            self._time_started = time.time()
-            if super().set_running_or_notify_cancel() is False:
-                # Future was cancelled
-                self._set_time_completed()
-                return False
-            else:
-                return True
-
-    @property
-    def tag(self):
-        return self._tag
-
-    @property
-    def time_started(self):
-        with self._condition:
-            return self._time_started
-
-    def total_runtime(self, timeout: Optional[float] = None) -> float:
-        with self._condition:
-            if self.done():
-                return self._time_completed - self._time_started
-            else:
-                self._condition.wait(timeout)
-
-                if self.done():
-                    return self._time_completed - self._time_started
-                else:
-                    raise concurrent.futures.TimeoutError()
-
-    def _set_time_completed(self):
-        with self._condition:
-            self._time_completed = time.time()
-
-
-class TimedFutureThreadPool(concurrent.futures.ThreadPoolExecutor):
-    def __init__(self, master: 'ThreadPoolWrapper', *args, runtime_alert: float = 0.0, **kwargs):
-        import warnings
-        msg = "ThreadPoolExecutor will be removed in 1.0.0 - please use the default pool_type instead for add_pool()"
-        warnings.warn(msg, FutureWarning)
-        logger.critical(msg)
-        super().__init__(*args, **kwargs)
-        self._master = master
-        self.runtime_alert = runtime_alert
-
-    def submit(self, tag: str, fn, *args, **kwargs):
-        # Over-ridden to use TimedFuture instead
-        with self._shutdown_lock:
-            if self._shutdown:
-                raise RuntimeError("cannot schedule new futures after shutdown")
-
-            f = TimedFuture(get_func_name(fn), self.runtime_alert, tag=tag)
-            w = concurrent.futures.thread._WorkItem(f, fn, args, kwargs)
-
-            f.add_done_callback(self._master.discard_thread)
-
-            self._master.track_thread(f)
-            self._work_queue.put(w)
-            self._adjust_thread_count()
-            return f
-
-    @property
-    def worker_count(self):
-        return self._max_workers
-
-    @worker_count.setter
-    def worker_count(self, value: int):
-        raise NotImplementedError("On-the-fly worker count adjustment has not been implemented for Future-based pools")
-
-
 class TimedThread(threading.Thread):
-    """
-    A thread that tracks start and completion times for statistics.
-    There are some API similarities to Future objects to simplify other parts of this package.
+    """A thread that tracks start and completion times for statistics.
+
+    There are some API similarities to Future objects.
     """
     def __init__(self, master: 'ThreadPoolWrapper' = None, pool: 'ThreadPool' = None, group=None, tag: str = "", target=None, name=None, args=(), kwargs=None, safe=True):
         """Initialize a thread with added 'safe' boolean parameter. When True, exceptions will be caught."""
@@ -217,7 +111,7 @@ class TimedThread(threading.Thread):
         :return: bool True if successful
         """
         with self._condition:
-            if self._state in NOCANCELSTATES:
+            if self._state in NO_CANCEL_STATES:
                 return False
             else:
                 self._state = CANCELLED
@@ -475,10 +369,10 @@ class ThreadManager(object):
         :param func: Callable
         :param args: Iterable (optional, typically a tuple) Single argument needs a trailing comma. e.g. (5,)
         :param kwargs: Mapping (optional, typically a dict)
-        :param get_ref: bool whether or not to return a reference to the Thread/Future
+        :param get_ref: bool whether or not to return a reference to the Thread
         :param timeout: float time to wait on getting the thread reference
         :param tag: str alphanumeric (- and _ allowed) string to append to thread name for easier tracking
-        :return: Optional[Union[TimedThread, TimedFuture]]
+        :return: Optional[TimedThread]
         """
         with self._rlock:
             if self._shutdown:
@@ -529,7 +423,7 @@ class ThreadManager(object):
         """Add a callback to run when ThreadManager.stop() is called (also called during shutdown)"""
         return self._add_callback(STOP, func, *args, **kwargs)
 
-    def add_pool(self, name: str, pool_type: str = THREAD, runtime_alert: float = 0, worker_count: int = DEFAULT_WORKER_COUNT) -> 'ThreadPoolController':
+    def add_pool(self, name: str, runtime_alert: float = 0, worker_count: int = DEFAULT_WORKER_COUNT) -> 'ThreadPoolController':
         """Add a new organizational pool for separating threads"""
         with self._rlock:
             if self._shutdown:
@@ -537,7 +431,7 @@ class ThreadManager(object):
             if name in self._pools:
                 raise ValueError(f"Pool already exists with name of {name}")
 
-            new_pool = ThreadPoolWrapper(self, name, pool_type, runtime_alert, self._pool_idle_event, worker_count=worker_count, safe=self._safe)
+            new_pool = ThreadPoolWrapper(self, name, runtime_alert, self._pool_idle_event, worker_count=worker_count, safe=self._safe)
 
             with self._pool_lock:
                 self._pools[name] = new_pool
@@ -844,7 +738,7 @@ class ThreadPool(object):
                 except IndexError:
                     return
 
-    def submit(self, tag: str, func, *args, **kwargs):
+    def submit(self, tag: str, func, *args, **kwargs) -> Optional[TimedThread]:
         thread_name = f"{self._name}-{get_func_name(func)}"
         if self._shutdown:
             logger.warning(f"ThreadPool ({self._name}) - not running thread {thread_name} due to shutdown request")
@@ -866,7 +760,7 @@ class ThreadPool(object):
         return new_thread
 
     def shutdown(self, wait: bool = True):
-        # TODO: maybe join all the currently running threads.
+        # TODO: maybe join all the currently running threads. (if wait is True)
         self._shutdown = True
         self._empty_pending_queue()
 
@@ -967,14 +861,11 @@ class ThreadPoolController(object):
 
 
 class ThreadPoolWrapper(object):
-    """Internal class that is an abstraction layer for ThreadPoolExecutor and internal pool types"""
-    _supported_types = (FUTURE, THREAD)
+    """Internal class that adds additional functionality to the pool"""
+    def __init__(self, master: ThreadManager, name: str, runtime_alert: float, idle_event: threading.Event, worker_count: int = DEFAULT_WORKER_COUNT, safe: bool = True):
+        """Initializes a ThreadPoolWrapper
 
-    def __init__(self, master: ThreadManager, name: str, pool_type: str, runtime_alert: float, idle_event: threading.Event, worker_count: int = DEFAULT_WORKER_COUNT, safe: bool = True):
-        """
-        Initializes a ThreadPoolWrapper
         :param name: str name of the pool. This should be alphanumeric
-        :param pool_type: str type of pool, options defined in constants
         :param runtime_alert: float amount of seconds. When threads run longer than this, it will be logged.
         :param worker_count: int max number of threads allowed to run at the same time
         """
@@ -987,15 +878,14 @@ class ThreadPoolWrapper(object):
             raise ValueError(f"runtime_alert must be greater than or equal to 0, got {runtime_alert}")
 
         self.use_tag_in_stats = True
-        self._active_threads: Set[TimedThread, TimedFuture] = set()
+        self._active_threads: Set[TimedThread] = set()
         self._idle_event = idle_event
         self._name = name
         self._master = master
-        self._pool: [TimedFutureThreadPool, ThreadPool] = None
+        self._pool: [ThreadPool] = None
         self._rlock = threading.RLock()
         self._runtime_alert = runtime_alert
         self._safe = safe
-        self._type = pool_type
 
         # Whether or not submissions are allowed in ThreadManager after stop was requested
         self._obey_stop = True
@@ -1006,36 +896,25 @@ class ThreadPoolWrapper(object):
         # Whether or not statistics reporting will be performed for this pool (only when global statistics are enabled)
         self._statistics_enabled = True
 
-        if pool_type == FUTURE:
-            self._pool = TimedFutureThreadPool(self, runtime_alert=runtime_alert, max_workers=worker_count, thread_name_prefix=name)
-        elif pool_type == THREAD:
-            self._pool = ThreadPool(self, name, max_running=worker_count, runtime_alert=runtime_alert, safe=self._safe)
-        elif pool_type in self._supported_types:
-            raise NotImplementedError(f"It seems that pool type of {pool_type} is not yet implemented")
-        else:
-            raise ValueError(f"Unrecognized pool type: {pool_type}")
+        self._pool = ThreadPool(self, name, max_running=worker_count, runtime_alert=runtime_alert, safe=self._safe)
 
     def __repr__(self):
-        return "%s(%r, %r)" % (self.__class__.__name__, self._name, self._type)
+        return "%s(%r)" % (self.__class__.__name__, self._name)
 
     def active_count(self) -> int:
         """Number of threads that are running"""
         with self._rlock:
-            if self._type == FUTURE:
-                return len([item.running() for item in self._active_threads])
-            else:
-                return len(self._active_threads)
+            return len(self._active_threads)
 
     def cancel_all(self):
         """Attempt to cancel all threads"""
         with self._rlock:
             logger.debug(f"ThreadPoolWrapper ({self._name}) - attempting to cancel all threads")
-            if self._type == THREAD:
-                self._pool.cancel_pending_threads()
+            self._pool.cancel_pending_threads()
             for thread_obj in self._active_threads.copy():
                 thread_obj.cancel()
 
-    def discard_thread(self, thread_item: [TimedFuture, TimedThread]):
+    def discard_thread(self, thread_item: [TimedThread]):
         """Internal method used in tracking active threads"""
         thread_name = thread_nametag(thread_item)
         logger.debug(f"ThreadPoolWrapper ({self._name}) - thread completed - name: {thread_name}")
@@ -1121,13 +1000,13 @@ class ThreadPoolWrapper(object):
         self._statistics_enabled = value
         logger.debug(f"Pool {self._name} configured to {'' if value else 'not '}report statistics")
 
-    def submit(self, tag: str, func: Callable, *args, **kwargs) -> Optional[Union[TimedThread, TimedFuture]]:
+    def submit(self, tag: str, func: Callable, *args, **kwargs) -> Optional[TimedThread]:
         """Add a function to be ran in a thread by the pool"""
         ret_val = self._pool.submit(tag, func, *args, **kwargs)
         self._wake_thread_monitor()
         return ret_val
 
-    def track_thread(self, thread_obj: [TimedFuture, TimedThread]):
+    def track_thread(self, thread_obj: TimedThread):
         """Internal method used in tracking active threads"""
         with self._rlock:
             logger.debug(
@@ -1159,14 +1038,14 @@ class ThreadRequest(object):
         self.kwargs = kwargs if kwargs else {}
         self.get_ref = get_ref
         self.tag = tag
-        self._thread = None
+        self._thread: Optional[TimedThread] = None
 
     def __repr__(self):
         return "%s(%r, %r, %r)" % (self.__class__.__name__, self.pool, self.func, self.tag)
 
-    def get_thread(self, timeout: float = None):
+    def get_thread(self, timeout: float = None) -> TimedThread:
         if self.get_ref is False:
-            raise ValueError("Cannot use get_thread when get_ref was not specified as True!")
+            raise ValueError("Cannot use get_thread() when get_ref was not specified as True!")
         with self._condition:
             if self._thread:
                 return self._thread
@@ -1178,7 +1057,7 @@ class ThreadRequest(object):
                 else:
                     raise WaitTimeout
 
-    def set_thread(self, thread_item):
+    def set_thread(self, thread_item: TimedThread):
         """For internal use by submit method"""
         with self._condition:
             self._thread = thread_item

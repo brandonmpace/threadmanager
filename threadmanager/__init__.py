@@ -35,7 +35,6 @@ __version__ = "0.1.0"
 import logging
 
 from .classes import ThreadManager
-from .constants import FUTURE, THREAD
 from .convenience import get_caller, get_func_name
 from .exceptions import *
 from .statistics import disable_statistics, enable_statistics, pause_statistics, reset_statistics, resume_statistics
