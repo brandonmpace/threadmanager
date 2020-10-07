@@ -37,6 +37,7 @@ logcontrol.set_level(logging.DEBUG)
 def continuous_func(work_time: float):
     """A function that repeats until a stop is requested"""
     return_value: int = 0
+    tm = threadmanager.ThreadManager.get_instance("example")
     while tm.go:
         log_time("continuous_func - doing work")
         time.sleep(work_time)
@@ -78,6 +79,7 @@ def long_running_func(name: str, line_count: int, chunk_size: int = 2):
     """
     Function that pretends to process text in chunks. (for real-world application the chunk size would likely be much larger)
     """
+    tm = threadmanager.ThreadManager.get_instance("example")
     number_of_lines_processed: int = 0
     for x in range(line_count):
         if number_of_lines_processed % chunk_size == 0:
@@ -100,7 +102,6 @@ def print_after(period: float):
 
 
 def main():
-    global tm
     # logcontrol.log_to_console()
     threadmanager.enable_statistics()
 
